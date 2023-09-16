@@ -171,3 +171,6 @@ raw_training_1694874754.*.txt
 /.idea/inspectionProfiles/Project_Default.xml
 /.idea/reddit-bot-gpt2-xl.iml
 /.idea/vcs.xml
+/cache.bak
+/cache.dat
+/cache.dir
