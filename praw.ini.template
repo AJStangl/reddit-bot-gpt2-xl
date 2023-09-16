@@ -1,0 +1,12 @@
+[DEFAULT]
+subreddit_flair_id_map = SubSimGPT2Interactive=ff1e3b8e-a518-11ea-b87f-0e2836404d8b
+
+[BotName-GPT2]
+username=BotName-GPT2
+password=SUPER-SECURE-PASSWORD
+bot_name=BotName-GPT2
+bot_author=FUCK-SPEZ-OR-SOMETHING
+bot_version=0.0.0
+client_id=HOW-EVER-YOU-GOT-THIS
+client_secret=HOW-EVER-YOU-GOT-THIS
+user_agent=script:%(bot_name)s:v%(bot_version)s (by /u/%(bot_author)s)

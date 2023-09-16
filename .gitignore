@@ -158,3 +158,16 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+/praw.ini
+/core/finetune/cache/
+/core/finetune/data/
+/core/finetune/appendBlob.jsonl
+raw_training_1694874754.*.txt
+/.idea/.gitignore
+/.idea/jupyter-settings.xml
+/.idea/misc.xml
+/.idea/modules.xml
+/.idea/inspectionProfiles/profiles_settings.xml
+/.idea/inspectionProfiles/Project_Default.xml
+/.idea/reddit-bot-gpt2-xl.iml
+/.idea/vcs.xml

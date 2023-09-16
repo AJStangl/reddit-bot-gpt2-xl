@@ -1,0 +1,10 @@
+pandas
+tqdm
+asyncpraw
+jupyterlab
+sentencepiece
+bigtree
+setuptools
+python-dotenv
+azure-data-tables
+adlfs
