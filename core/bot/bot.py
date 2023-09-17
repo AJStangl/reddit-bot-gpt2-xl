@@ -283,7 +283,7 @@ class RedditRunner(object):
 		new_reddit = None
 		try:
 			await subreddit.load()
-			async for submission in subreddit.new(limit=1):
+			async for submission in subreddit.new(limit=5):
 				await submission.load()
 				if 'imgur.com' in submission.url or 'i.redd.it' in submission.url:
 					logger.info(f":: Submission contains image URL: {submission.url}")
@@ -348,6 +348,7 @@ class RedditRunner(object):
 	async def handle_new_comments(self, subreddit, reddit):
 		with shelve.open(str(self.cache_path)) as db:
 			async for comment in subreddit.stream.comments(skip_existing=False, pause_after=0):
+				await self.handle_new_submissions(subreddit)
 				if comment.id in db:
 					await self.handle_new_submissions(subreddit)
 					continue
