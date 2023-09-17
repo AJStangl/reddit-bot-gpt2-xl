@@ -101,11 +101,12 @@ class ModelRunner:
 				good_line = line
 
 			temp = "<|startoftext|>" + good_line
-			if self.ensure_non_toxic(temp):
-				return temp
-			else:
-				logger.info("Output was Toxic")
-				self.run_generation(encoding)
+			return temp
+			# if self.ensure_non_toxic(temp): TODO: Figure out the tox stuff.
+			# 	return temp
+			# else:
+			# 	logger.info("Output was Toxic")
+			# 	self.run_generation(encoding)
 
 	@staticmethod
 	def clean_text(text, input_string) -> Optional[str]:
@@ -164,16 +165,16 @@ class ModelRunner:
 			'severe_toxic': 0.99,
 			'threat': 1.0
 		}
-		results = self.detoxify.predict(input_text)
+		results = self.detoxify.predict(input_text)[0]
 
 		for key in threshold_map:
-			result = results.get(key)
-			threshold = threshold_map.get(key)
-			if result is None or threshold is None:
-				continue
-			if results > threshold:
-				logging.info(f"Detoxify: {key} score of {results[key]} is above threshold of {threshold_map[key]}")
-				return False
+			label = results.get("label")
+			score = results.get("score")
+			if key == label:
+				if score > threshold_map[key]:
+					logging.info(f"Detoxify: {key} score of {score} is above threshold of {threshold_map[key]}")
+					return False
+			continue
 
 		return True
 
