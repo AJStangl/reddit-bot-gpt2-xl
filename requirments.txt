@@ -3,8 +3,6 @@ tqdm
 asyncpraw
 jupyterlab
 sentencepiece
-bigtree
-setuptools
 python-dotenv
-azure-data-tables
-adlfs
+detoxify
+transformers==4.33.2

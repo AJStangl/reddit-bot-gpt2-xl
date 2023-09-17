@@ -1,18 +1,21 @@
 import json
 import logging
 import os
-import random
-import re
+from io import BytesIO
 from typing import Optional
-
+import random
+import aiohttp
 import asyncpraw
 import torch
 from asyncpraw.models import Comment
-from asyncpraw.models import Comment
 from dotenv import load_dotenv
-from transformers import GPT2Tokenizer, GPT2LMHeadModel
+from transformers import GPT2Tokenizer, GPT2LMHeadModel, BlipProcessor, BlipForConditionalGeneration
+from PIL import Image
+import re
+from transformers import logging as transformers_logging
+from transformers import pipeline
 
-from core.finetune.gather import CaptionProcessor
+transformers_logging.set_verbosity(transformers_logging.FATAL)
 
 load_dotenv()
 
@@ -22,12 +25,47 @@ import asyncio
 import shelve
 
 
+class CaptionProcessor(object):
+	def __init__(self, device_name: str = "cuda"):
+		self.processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-large")
+		self.device_name = device_name
+		self.device = torch.device(self.device_name)
+		self.model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large").to(self.device)
+
+	async def caption_image_from_url(self, image_url: str) -> str:
+		result = ""
+		try:
+			async with aiohttp.ClientSession() as session:
+				async with session.get(image_url) as response:
+					if response.status != 200:
+						return ""
+					content = await response.read()
+					image = Image.open(BytesIO(content))
+					try:
+						inputs = self.processor(images=image, return_tensors="pt").to(self.device)
+						out = self.model.generate(**inputs, max_new_tokens=77, num_return_sequences=1, do_sample=True)
+						result = self.processor.decode(out[0], skip_special_tokens=True)
+					except Exception as e:
+						logger.exception(e)
+						result = ""
+					finally:
+						response.close()
+						image.close()
+						await session.close()
+		except Exception as e:
+			logger.exception(e)
+			result = ""
+		finally:
+			return result
+
+
 class ModelRunner:
 	def __init__(self, model_path):
 		self.model_path = model_path
 		self.device = torch.device('cuda')
 		self.tokenizer, self.model = self.load_model_and_tokenizer(self.model_path)
 		self.model.to(self.device)
+		self.detoxify = pipeline("text-classification", model="unitary/toxic-bert", device=self.device)
 
 	def run(self, text) -> str:
 		encoding = self.get_encoding(text)
@@ -54,6 +92,7 @@ class ModelRunner:
 			'do_sample': True,
 			'num_return_sequences': 1
 		}
+		logging.getLogger("transformers").setLevel(logging.FATAL)
 		for i, _ in enumerate(self.model.generate(**args)):
 			generated_texts = self.tokenizer.decode(_, skip_special_tokens=False, clean_up_tokenization_spaces=True)
 			generated_texts = generated_texts.split("<|startoftext|>")
@@ -62,38 +101,51 @@ class ModelRunner:
 				good_line = line
 
 			temp = "<|startoftext|>" + good_line
-			temp += "<|endoftext|>"
-			return temp
+			if self.ensure_non_toxic(temp):
+				return temp
+			else:
+				logger.info("Output was Toxic")
+				self.run_generation(encoding)
 
 	@staticmethod
-	def split_token(text) -> Optional[dict]:
+	def clean_text(text, input_string) -> Optional[str]:
 		try:
-			pattern = r'<\|([a-zA-Z0-9_]+)\|>(.*?)((?=<\|[a-zA-Z0-9_]+\|>)|$)'
-			re.compile(pattern)
-
-			matches = re.finditer(pattern, text)
-
-			new_tokens = {
-			}
-			for i, match in enumerate(matches):
-				new_tokens[match.group(1)] = match.group(2).strip()
-
-			return new_tokens
+			replaced = text.replace(input_string, "")
+			split_target = replaced.split("<|context_level|>")
+			if len(split_target) > 0:
+				final = split_target[0].replace("<|endoftext|>", "")
+				return final
+			else:
+				# now we need to check if there is only an <|endoftext|>
+				split_target = replaced.split("<|endoftext|>")
+				if len(split_target) > 0:
+					final = split_target[0].replace("<|endoftext|>", "")
+					return final
+				else:
+					return None
 		except Exception as e:
 			logger.error(e)
 			return None
 
 	@staticmethod
-	def split_token_first_comment(text) -> Optional[str]:
-		pattern = re.compile(r'<\|context_level\|>0<\|comment\|>(.+?)<', re.MULTILINE)
-		logger.info(text)
-		matches = re.findall(pattern, text)
-		if len(matches) == 1:
-			return matches[0]
-		else:
-			logger.error("Failed to split first comment text")
+	def split_token_first_comment(prompt, completion) -> Optional[str]:
+		try:
+			replaced = completion.replace(prompt, "")
+			split_target = replaced.split("<|context_level|>")
+			if len(split_target) > 0:
+				final = split_target[0].replace("<|endoftext|>", "")
+				return final
+			else:
+				# now we need to check if there is only an <|endoftext|>
+				split_target = replaced.split("<|endoftext|>")
+				if len(split_target) > 0:
+					final = split_target[0].replace("<|endoftext|>", "")
+					return final
+				else:
+					return None
+		except Exception as e:
+			logger.error(e)
 			return None
-
 
 	def load_model_and_tokenizer(self, model_path: str) -> (GPT2Tokenizer, GPT2LMHeadModel):
 		tokenizer: GPT2Tokenizer = GPT2Tokenizer.from_pretrained(model_path)
@@ -102,34 +154,49 @@ class ModelRunner:
 		tokenizer.pad_token = tokenizer.eos_token
 		return tokenizer, model
 
+	def ensure_non_toxic(self, input_text: str) -> bool:
+		threshold_map = {
+			'toxic': 0.99,
+			'obscene':  0.99,
+			'insult': 0.99,
+			'identity_attack': 0.99,
+			'identity_hate':  0.99,
+			'severe_toxic': 0.99,
+			'threat': 1.0
+		}
+		results = self.detoxify.predict(input_text)
+
+		for key in threshold_map:
+			result = results.get(key)
+			threshold = threshold_map.get(key)
+			if result is None or threshold is None:
+				continue
+			if results > threshold:
+				logging.info(f"Detoxify: {key} score of {results[key]} is above threshold of {threshold_map[key]}")
+				return False
+
+		return True
+
 
 class RedditRunner(object):
 	def __init__(self):
+		self.cache_path = os.path.join("cache", "cache")
+		self.bot_map = self.set_bot_configration()
+		logger.info(":: Initializing Model")
 		self.model_runner: ModelRunner = ModelRunner(os.environ.get("MODEL_PATH"))
+		logger.info(":: Initializing Captioning Model")
+		self.caption_processor: CaptionProcessor = CaptionProcessor()
+		logger.info(":: Initializing Queues")
+		self.queue: asyncio.Queue = asyncio.Queue()
+
+
+	def set_bot_configration(self) -> dict:
+		os.makedirs(self.cache_path, exist_ok=True)
 		handle = open(os.environ.get("CONFIG_PATH"), 'r')
 		content = handle.read()
 		handle.close()
 		bot_data = json.loads(content)
-		self.bot_map = {item['name']: item['personality'] for item in bot_data}
-		self.caption_processor: CaptionProcessor = CaptionProcessor()
-		self.cache_path = "cache"
-		os.makedirs(self.cache_path, exist_ok=True)
-
-	async def clear_cache_hourly(self):
-		while True:
-			logger.info("Clearing cache")
-			with shelve.open(str(self.cache_path)) as db:
-				keys_to_remove = []  # List to store keys that need to be removed
-				for key in db.keys():
-					if key == "post":
-						keys_to_remove.append(key)
-
-				# Remove items from cache
-				for key in keys_to_remove:
-					del db[key]
-
-			# Sleep for one hour (3600 seconds)
-			await asyncio.sleep(3600)
+		return {item['name']: item['personality'] for item in bot_data}
 
 	async def construct_context_string(self, comment: Comment):
 		things = []
@@ -156,22 +223,72 @@ class RedditRunner(object):
 		things.reverse()
 		out = ""
 		for i, r in enumerate(things):
-			out += f"<|context_level|>{i}><|text|>{r}"
+			out += f"<|context_level|>{i}<|comment|>{r}"
+
+		out += f"<|context_level|>{len(things) + 1}<|comment|>"
 		return out
+
+	def create_post_string(self):
+		chosen_bot_key = random.choice(list(self.bot_map.keys()))
+		bot_config = self.bot_map[chosen_bot_key]
+		constructed_string = f"<|startoftext|><|subreddit|>r/{bot_config}"
+		result = self.model_runner.run(constructed_string)
+
+		pattern = re.compile(r'<\|([a-zA-Z0-9_]+)\|>(.*?)(?=<\|[a-zA-Z0-9_]+\|>|$)', re.DOTALL)
+		matches = pattern.findall(result)
+		result_dict = {key: value for key, value in matches}
+		self.queue.put_nowait({
+			'title': result_dict.get('title'),
+			'text': result_dict.get('text'),
+			'image_path': None,
+			'bot': chosen_bot_key,
+			'subreddit': os.environ.get("SUBREDDIT_TO_MONITOR")
+		})
+
+	async def check_queue_hourly(self):
+		while True:
+			try:
+				await asyncio.sleep(3600)
+				if not self.queue.empty():
+					logger.info("Queue Message Present, processing")
+					result = self.queue.get_nowait()
+					await self.create_reddit_post(result)
+				else:
+					logger.debug("Queue is empty.")
+					self.create_post_string()
+			except Exception as e:
+				logger.error(e)
+				continue
+
+	async def create_reddit_post(self, data: dict):
+		bot = data.get("bot")
+		subreddit_name = data.get("subreddit")
+		new_reddit = asyncpraw.Reddit(site_name=bot)
+		try:
+			subreddit = await new_reddit.subreddit(subreddit_name)
+			title = data.get("title")
+			text = data.get('text')
+			result = await subreddit.submit(title, selftext=text)
+			await result.load()
+			logger.info(f"{bot} has Created A Submission: at https://www.reddit.com{result.permalink}")
+		except Exception as e:
+			logger.error(e)
+		finally:
+			await new_reddit.close()
+
 
 	async def handle_new_submissions(self, subreddit):
 		db = shelve.open(str(self.cache_path))
 		new_reddit = None
 		try:
-			async for submission in subreddit.stream.submissions():
-				if submission is None:
-					break
+			await subreddit.load()
+			async for submission in subreddit.new(limit=1):
 				await submission.load()
 				if 'imgur.com' in submission.url or 'i.redd.it' in submission.url:
-					logger.info(f"Submission contains image URL: {submission.url}")
-					text = self.caption_processor.caption_image_from_url(submission.url)
+					logger.info(f":: Submission contains image URL: {submission.url}")
+					text = await self.caption_processor.caption_image_from_url(submission.url)
 				else:
-					logger.info(f"Submission does not contain image URL: {submission.url}")
+					logger.debug(f":: Submission does not contain image URL: {submission.url}")
 					text = submission.selftext
 
 				for bot in self.bot_map.keys():
@@ -193,14 +310,14 @@ class RedditRunner(object):
 						new_reddit = asyncpraw.Reddit(site_name=bot)
 						result = self.model_runner.run(constructed_string)
 						submission = await new_reddit.submission(submission.id)
-						reply_text = ModelRunner.split_token_first_comment(result)
+						reply_text = ModelRunner.split_token_first_comment(prompt=constructed_string, completion=result)
 						if reply_text is None:
-							logger.error("Failed to split first comment text")
-							db[bot_reply_key] = True
-							pass
+							logger.error(":: Failed to split first comment text")
+						else:
+							reply = await submission.reply(reply_text)
+							await reply.load()
+							logger.info(f"{bot} has Replied to Submission: at https://www.reddit.com{reply.permalink}")
 
-						reply = await submission.reply(reply_text)
-						logger.info(f"{bot} has Replied to submission: at https://www.reddit.com{reply.permalink}")
 						db[bot_reply_key] = True
 					except Exception as e:
 						logger.error(f"Failed to reply, {e}")
@@ -213,52 +330,59 @@ class RedditRunner(object):
 		finally:
 			db.close()
 
-	async def send_comment_reply(self, comment: Comment, responding_bot: str, tokens: dict):
+	async def send_comment_reply(self, comment: Comment, responding_bot: str, reply_text: str):
 		new_reddit = asyncpraw.Reddit(site_name=responding_bot)
 		try:
 			await comment.load()
 			comment = await new_reddit.comment(comment.id)
-			reply_text = tokens['text']
 			reply = await comment.reply(reply_text)
 			await new_reddit.close()
 			logger.info(
-				f"{responding_bot} has Replied to comment for submission: at https://www.reddit.com{reply.permalink}")
+				f"{responding_bot} has replied to Comment: at https://www.reddit.com{reply.permalink}")
 		except Exception as e:
-			logger.error("I am here!")
 			logger.error(e)
 		finally:
 			await new_reddit.close()
 
+	async def handle_new_comments(self, subreddit, reddit):
+		with shelve.open(str(self.cache_path)) as db:
+			async for comment in subreddit.stream.comments(skip_existing=False, pause_after=0):
+				if comment.id in db:
+					await self.handle_new_submissions(subreddit)
+					continue
+				if comment is None:
+					await self.handle_new_submissions(subreddit)
+					continue
+
+				submission_id = comment.submission
+
+				bots = list(self.bot_map.keys())
+				responding_bot = random.choice(bots)
+				personality = self.bot_map[responding_bot]
+
+				submission = await reddit.submission(submission_id)
+				mapped_submission = {
+					"subreddit": 'r' + '/' + personality,
+					"title": submission.title,
+					"text": submission.selftext
+				}
+
+				constructed_string = f"<|startoftext|><|subreddit|>{mapped_submission['subreddit']}<|title|>{mapped_submission['title']}<|text|>{mapped_submission['text']}"
+				constructed_string += await self.construct_context_string(comment)
+				result = self.model_runner.run(constructed_string)
+				cleaned_text: str = ModelRunner.clean_text(result, constructed_string)
+				await self.send_comment_reply(comment, responding_bot, cleaned_text)
+				db[comment.id] = True
+
 	async def run(self):
-		asyncio.create_task(self.clear_cache_hourly())
+		self.create_post_string()
+		task = asyncio.create_task(self.check_queue_hourly())
 		while True:
 			try:
 				reddit = asyncpraw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
 				sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
 				subreddit = await reddit.subreddit(sub_names)
-				await self.handle_new_submissions(subreddit)
-				async for comment in subreddit.stream.comments(skip_existing=True, pause_after=0):
-					if comment is None:
-						logger.info("No new comments, checking for new submissions")
-						continue
-					submission_id = comment.submission
-
-					responding_bot = random.choice(self.bot_map.keys())
-					personality = self.bot_map[responding_bot]
-
-					submission = await reddit.submission(submission_id)
-					mapped_submission = {
-						"subreddit": 'r' + '/' + personality,
-						"title": submission.title,
-						"text": submission.selftext
-					}
-
-					constructed_string = f"<|startoftext|><|subreddit|>{mapped_submission['subreddit']}<|title|>{mapped_submission['title']}<|text|>{mapped_submission['text']}"
-					constructed_string += await self.construct_context_string(comment)
-					result = self.model_runner.run(constructed_string)
-					tokens: dict = ModelRunner.split_token(result)
-					await self.send_comment_reply(comment, responding_bot, tokens)
+				await self.handle_new_comments(subreddit=subreddit, reddit=reddit)
 			except Exception as e:
-				logger.error("An error has occurring during the primary loop, continuing")
-				logger.error(e)
+				logger.error(f"An error has occurring during the primary loop, continuing {e}")
 				continue
