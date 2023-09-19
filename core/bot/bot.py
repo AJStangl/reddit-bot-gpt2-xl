@@ -1,3 +1,4 @@
+import gc
 import json
 import logging
 import os
@@ -7,9 +8,13 @@ import random
 import aiohttp
 import asyncpraw
 import torch
-from asyncpraw.models import Comment
+from accelerate import Accelerator
+from asyncpraw.models import Comment, Subreddit
+from diffusers import StableDiffusionPipeline, AutoencoderKL, UNet2DConditionModel, DPMSolverMultistepScheduler
+from diffusers.pipelines.stable_diffusion import StableDiffusionSafetyChecker
 from dotenv import load_dotenv
-from transformers import GPT2Tokenizer, GPT2LMHeadModel, BlipProcessor, BlipForConditionalGeneration
+from transformers import GPT2Tokenizer, GPT2LMHeadModel, BlipProcessor, BlipForConditionalGeneration, CLIPTextModel, \
+	CLIPTokenizer, CLIPImageProcessor
 from PIL import Image
 import re
 from transformers import logging as transformers_logging
@@ -39,19 +44,21 @@ class CaptionProcessor(object):
 				async with session.get(image_url) as response:
 					if response.status != 200:
 						return ""
+
 					content = await response.read()
-					image = Image.open(BytesIO(content))
-					try:
-						inputs = self.processor(images=image, return_tensors="pt").to(self.device)
-						out = self.model.generate(**inputs, max_new_tokens=77, num_return_sequences=1, do_sample=True)
-						result = self.processor.decode(out[0], skip_special_tokens=True)
-					except Exception as e:
-						logger.exception(e)
-						result = ""
-					finally:
-						response.close()
-						image.close()
-						await session.close()
+
+			# Move the synchronous code out of the async block
+			image = Image.open(BytesIO(content))
+			try:
+				inputs = self.processor(images=image, return_tensors="pt").to(self.device)
+				out = self.model.generate(**inputs, max_new_tokens=77, num_return_sequences=1, do_sample=True)
+				result = self.processor.decode(out[0], skip_special_tokens=True)
+			except Exception as e:
+				logger.exception(e)
+				result = ""
+			finally:
+				image.close()
+
 		except Exception as e:
 			logger.exception(e)
 			result = ""
@@ -59,101 +66,206 @@ class CaptionProcessor(object):
 			return result
 
 
-class ModelRunner:
-	def __init__(self, model_path):
+class ImageGenerator(object):
+	def __init__(self, model_path: str, device_name: str):
 		self.model_path = model_path
-		self.device = torch.device('cuda')
-		self.tokenizer, self.model = self.load_model_and_tokenizer(self.model_path)
+		self.device_name = device_name
+		self.accelerator = Accelerator()
+
+	def assemble_model(self, model_base_path) -> StableDiffusionPipeline:
+		vae: AutoencoderKL = AutoencoderKL.from_pretrained(model_base_path, subfolder='vae')
+		text_encoder: CLIPTextModel = CLIPTextModel.from_pretrained(model_base_path, subfolder='text_encoder')
+		tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(model_base_path, subfolder='tokenizer')
+		unet: UNet2DConditionModel = UNet2DConditionModel.from_pretrained(model_base_path, subfolder='unet')
+		scheduler: DPMSolverMultistepScheduler = DPMSolverMultistepScheduler.from_pretrained(model_base_path, subfolder="scheduler")
+		safety_checker: StableDiffusionSafetyChecker = None
+		feature_extractor: CLIPImageProcessor = CLIPImageProcessor.from_pretrained(model_base_path, subfolder='feature_extractor')
+		requires_safety_checker: bool = False
+
+		pipeline = StableDiffusionPipeline(
+			vae=vae,
+			text_encoder=text_encoder,
+			tokenizer=tokenizer,
+			unet=unet,
+			scheduler=scheduler,
+			feature_extractor=feature_extractor,
+			safety_checker=safety_checker,
+			requires_safety_checker=requires_safety_checker)
+		return pipeline
+
+	@torch.autocast("cuda")
+	def create_image(self, prompt: str) -> (str, dict):
+		pipe: StableDiffusionPipeline = self.assemble_model(self.model_path)
+		negative_prompt = "(((deformed))), blurry, bad anatomy, disfigured, poorly drawn face, mutation, mutated, (extra_limb), (ugly), (poorly drawn hands), fused fingers, messy drawing, broken legs censor, censored, censor_bar, multiple breasts, (mutated hands and fingers:1.5), (long body :1.3), (mutation, poorly drawn :1.2), black-white, bad anatomy, liquid body, liquidtongue, disfigured, malformed, mutated, anatomical nonsense, text font ui, error, malformed hands, long neck, blurred, lowers, low res, bad anatomy, bad proportions, bad shadow, uncoordinated body, unnatural body, fused breasts, bad breasts, huge breasts, poorly drawn breasts, extra breasts, liquid breasts, heavy breasts, missingbreasts, huge haunch, huge thighs, huge calf, bad hands, fused hand, missing hand, disappearing arms, disappearing thigh, disappearing calf, disappearing legs, fusedears, bad ears, poorly drawn ears, extra ears, liquid ears, heavy ears, missing ears, old photo, low res, black and white, black and white filter, colorless, (((deformed))), blurry, bad anatomy, disfigured, poorly drawn face, mutation, mutated, (extra_limb), (ugly), (poorly drawn hands), fused fingers, messy drawing, broken legs censor, censored, censor_bar, multiple breasts, (mutated hands and fingers:1.5), (long body :1.3), (mutation, poorly drawn :1.2), black-white, bad anatomy, liquid body, liquid tongue, disfigured, malformed, mutated, anatomical nonsense, text font ui, error, malformed hands, long neck, blurred, lowers, low res, bad anatomy, bad proportions, bad shadow, uncoordinated body, unnatural body, fused breasts, bad breasts, huge breasts, poorly drawn breasts, extra breasts, liquid breasts, heavy breasts, missing breasts, huge haunch, huge thighs, huge calf, bad hands, fused hand, missing hand, disappearing arms, disappearing thigh, disappearing calf, disappearing legs, fused ears, bad ears, poorly drawn ears, extra ears, liquid ears, heavy ears, missing ears, old photo, low res, black and white, black and white filter, colorless, (((deformed))), blurry, bad anatomy, disfigured, poorly drawn face, mutation, mutated, (extra_limb), (ugly), (poorly drawn hands), fused fingers, messy drawing, broken legs censor, censored, censor_bar, multiple breasts, (mutated hands and fingers:1.5), (long body :1.3), (mutation, poorly drawn :1.2), black-white, bad anatomy, liquid body, liquid tongue, disfigured, malformed, mutated, anatomical nonsense, text font ui, error, malformed hands, long neck, blurred, lowers, low res, bad anatomy, bad proportions, bad shadow, uncoordinated body, unnatural body, fused breasts, bad breasts, huge breasts, poorly drawn breasts, extra breasts, liquid breasts, heavy breasts, missing breasts, huge haunch, huge thighs, huge calf, bad hands, fused hand, missing hand, disappearing arms, disappearing thigh, disappearing calf, disappearing legs, fused ears, bad ears, poorly drawn ears, extra ears, liquid ears, heavy ears, missing ears, (((deformed))), blurry, bad anatomy, disfigured, poorly drawn face, mutation, mutated, (extra_limb), (ugly), (poorly drawn hands), fused fingers, messy drawing, broken legs censor, censored, censor_bar, multiple breasts, (mutated hands and fingers:1.5), (long body :1.3), (mutation, poorly drawn :1.2), black-white, bad anatomy, liquid body, liquidtongue, disfigured, malformed, mutated, anatomical nonsense, text font ui, error, malformed hands, long neck, blurred, lowers, low res, bad anatomy, bad proportions, bad shadow, uncoordinated body, unnatural body, fused breasts, bad breasts, huge breasts, poorly drawn breasts, extra breasts, liquid breasts, heavy breasts, missingbreasts, huge haunch, huge thighs, huge calf, bad hands, fused hand, missing hand, disappearing arms, disappearing thigh, disappearing calf, disappearing legs, fusedears, bad ears, poorly drawn ears, extra ears, liquid ears, heavy ears, missing ears"
+		default_prompt = "realistic, high quality, hd"
+
+		try:
+			pipe: StableDiffusionPipeline = pipe.to(torch_device="cuda", torch_dtype=torch.float16)
+
+
+			new_prompt = f"{prompt}, {default_prompt}"
+			guidance_scale = random.randint(6, 12)
+			num_inference_steps = random.randint(20, 75)
+			args = {
+				"model": pipe.config_name,
+				"guidance_scale": str(guidance_scale),
+				"num_inference_steps": str(num_inference_steps)
+			}
+
+			height = 512
+			width = [512, 512]
+			initial_image = pipe(
+				prompt=new_prompt,
+				negative_prompt=negative_prompt,
+				height=height,
+				width=random.choice(width),
+				guidance_scale=guidance_scale,
+				num_inference_steps=num_inference_steps).images[0]
+
+			upload_file = f"temp.png"
+			initial_image.save(upload_file)
+			return upload_file
+
+		except Exception as e:
+			logger.error(e)
+			return None
+
+		finally:
+			del pipe
+			torch.cuda.empty_cache()
+
+
+class ModelRunner:
+	def __init__(self, model_path: str):
+		self.model_path: str = model_path
+		self.device: torch.device = torch.device('cuda')
+		self.tokenizer: GPT2Tokenizer = self.load_tokenizer(self.model_path)
+		self.model: GPT2LMHeadModel = self.load_model(self.model_path)
+		self.detoxify: pipeline = pipeline("text-classification", model="unitary/toxic-bert", device=self.device)
+		self.caption_processor: CaptionProcessor = CaptionProcessor()
+		self.image_generator: ImageGenerator = ImageGenerator(model_path=os.environ.get("IMAGE_MODEL_PATH"), device_name="cuda")
 		self.model.to(self.device)
-		self.detoxify = pipeline("text-classification", model="unitary/toxic-bert", device=self.device)
 
 	def run(self, text) -> str:
 		encoding = self.get_encoding(text)
+		if len(encoding) > 512:
+			logger.info(f"The encoding output {len(encoding)} > 512, not performing operation.")
+			return None
 		encoding.to(self.device)
-		output = self.run_generation(encoding)
-		return output
+		try:
+			return self.run_generation(encoding)
+		except Exception as e:
+			logger.error(e)
+			raise Exception("I blew the fuck up exception", e)
 
 	def get_encoding(self, text):
-		encoding = self.tokenizer(text, padding=True, return_tensors='pt')
+		encoding = self.tokenizer(text, padding=True, return_tensors='pt', truncation=True)
 		return encoding
 
 	@torch.no_grad()
 	def run_generation(self, encoding):
-		inputs = encoding['input_ids']
-		attention_mask = encoding['attention_mask']
-		args = {
-			'inputs': inputs,
-			'attention_mask': attention_mask,
-			'max_new_tokens': 512,
-			'repetition_penalty': 1.1,
-			'temperature': 1.2,
-			'top_k': 50,
-			'top_p': 0.95,
-			'do_sample': True,
-			'num_return_sequences': 1
-		}
-		logging.getLogger("transformers").setLevel(logging.FATAL)
-		for i, _ in enumerate(self.model.generate(**args)):
-			generated_texts = self.tokenizer.decode(_, skip_special_tokens=False, clean_up_tokenization_spaces=True)
-			generated_texts = generated_texts.split("<|startoftext|>")
-			good_line = ""
-			for line in generated_texts:
-				good_line = line
+		try:
+			inputs = encoding['input_ids']
+			attention_mask = encoding['attention_mask']
+			if inputs.size(0) <= 0 or attention_mask.size(0) <= 0:
+				logger.error("Inputs Fail: inputs.size(0) <= 0 or attention_mask.size(0) <= 0")
+				return None
+			if inputs.dim() != 2 or attention_mask.dim() != 2:
+				logger.error("Invalid shape. Expected 2D tensor.")
+				return None
+			if inputs.shape != attention_mask.shape:
+				logger.error("Mismatched shapes between input_ids and attention_mask.")
+				return None
 
-			temp = "<|startoftext|>" + good_line
-			return temp
-			# if self.ensure_non_toxic(temp): TODO: Figure out the tox stuff.
-			# 	return temp
-			# else:
-			# 	logger.info("Output was Toxic")
-			# 	self.run_generation(encoding)
+			args = {
+				'inputs': inputs,
+				'attention_mask': attention_mask,
+				'max_new_tokens': 512,
+				'repetition_penalty': 1.1,
+				'temperature': 1.2,
+				'top_k': 50,
+				'top_p': 0.95,
+				'do_sample': True,
+				'num_return_sequences': 1
+			}
+			logging.getLogger("transformers").setLevel(logging.FATAL)
+			for i, _ in enumerate(self.model.generate(**args)):
+				generated_texts = self.tokenizer.decode(_, skip_special_tokens=False, clean_up_tokenization_spaces=True)
+				generated_texts = generated_texts.split("<|startoftext|>")
+				good_line = ""
+				for line in generated_texts:
+					good_line = line
 
-	@staticmethod
-	def clean_text(text, input_string) -> Optional[str]:
+				temp = "<|startoftext|>" + good_line
+				return temp
+		except Exception as e:
+			logger.error(e)
+			raise Exception("I blew the fuck up exception",e)
+		finally:
+			torch.clear_autocast_cache()
+			gc.collect()
+
+	def clean_text(self, text, input_string) -> Optional[str]:
 		try:
 			replaced = text.replace(input_string, "")
 			split_target = replaced.split("<|context_level|>")
 			if len(split_target) > 0:
 				final = split_target[0].replace("<|endoftext|>", "")
-				return final
+				if self.ensure_non_toxic(final):
+					return final
+				else:
+					return None
 			else:
 				# now we need to check if there is only an <|endoftext|>
 				split_target = replaced.split("<|endoftext|>")
 				if len(split_target) > 0:
 					final = split_target[0].replace("<|endoftext|>", "")
-					return final
+					if self.ensure_non_toxic(final):
+						return final
+					else:
+						return None
 				else:
 					return None
 		except Exception as e:
 			logger.error(e)
 			return None
 
-	@staticmethod
-	def split_token_first_comment(prompt, completion) -> Optional[str]:
+
+	def split_token_first_comment(self, prompt, completion) -> Optional[str]:
 		try:
 			replaced = completion.replace(prompt, "")
 			split_target = replaced.split("<|context_level|>")
 			if len(split_target) > 0:
 				final = split_target[0].replace("<|endoftext|>", "")
-				return final
+				if self.ensure_non_toxic(final):
+					# logging.info(completion)
+					return final
+				else:
+					return None
 			else:
 				# now we need to check if there is only an <|endoftext|>
 				split_target = replaced.split("<|endoftext|>")
 				if len(split_target) > 0:
 					final = split_target[0].replace("<|endoftext|>", "")
-					return final
+					if self.ensure_non_toxic(final):
+						return final
+					else:
+						return None
 				else:
 					return None
 		except Exception as e:
 			logger.error(e)
 			return None
 
-	def load_model_and_tokenizer(self, model_path: str) -> (GPT2Tokenizer, GPT2LMHeadModel):
+	def load_tokenizer(self, model_path: str) -> GPT2Tokenizer:
 		tokenizer: GPT2Tokenizer = GPT2Tokenizer.from_pretrained(model_path)
-		model: GPT2LMHeadModel = GPT2LMHeadModel.from_pretrained(model_path)
 		tokenizer.padding_side = "left"
 		tokenizer.pad_token = tokenizer.eos_token
-		return tokenizer, model
+		return tokenizer
+
+	def load_model(self, model_path: str) -> GPT2LMHeadModel:
+		model: GPT2LMHeadModel = GPT2LMHeadModel.from_pretrained(model_path)
+		return model
 
 	def ensure_non_toxic(self, input_text: str) -> bool:
 		threshold_map = {
@@ -181,23 +293,19 @@ class ModelRunner:
 
 class RedditRunner(object):
 	def __init__(self):
-		self.cache_path = os.path.join("cache", "cache")
-		self.bot_map = self.set_bot_configration()
+		self.cache_path: str = os.path.join("cache", "cache")
+		self.bot_map: dict = self.set_bot_configration()
 		logger.info(":: Initializing Model")
 		self.model_runner: ModelRunner = ModelRunner(os.environ.get("MODEL_PATH"))
 		logger.info(":: Initializing Captioning Model")
-		self.caption_processor: CaptionProcessor = CaptionProcessor()
 		logger.info(":: Initializing Queues")
 		self.queue: asyncio.Queue = asyncio.Queue()
 
 
 	def set_bot_configration(self) -> dict:
 		os.makedirs(self.cache_path, exist_ok=True)
-		handle = open(os.environ.get("CONFIG_PATH"), 'r')
-		content = handle.read()
-		handle.close()
-		bot_data = json.loads(content)
-		return {item['name']: item['personality'] for item in bot_data}
+		with open(os.environ.get("CONFIG_PATH"), 'r') as handle:
+			return {item['name']: item['personality'] for item in json.loads(handle.read())}
 
 	async def construct_context_string(self, comment: Comment):
 		things = []
@@ -277,59 +385,63 @@ class RedditRunner(object):
 		finally:
 			await new_reddit.close()
 
-
-	async def handle_new_submissions(self, subreddit):
-		db = shelve.open(str(self.cache_path))
-		new_reddit = None
-		try:
-			await subreddit.load()
-			async for submission in subreddit.new(limit=5):
-				await submission.load()
-				if 'imgur.com' in submission.url or 'i.redd.it' in submission.url:
-					logger.info(f":: Submission contains image URL: {submission.url}")
-					text = await self.caption_processor.caption_image_from_url(submission.url)
-				else:
-					logger.debug(f":: Submission does not contain image URL: {submission.url}")
-					text = submission.selftext
-
-				for bot in self.bot_map.keys():
-					personality = self.bot_map[bot]
-					mapped_submission = {
-						"subreddit": 'r/' + personality,
-						"title": submission.title,
-						"text": text
-					}
-					db[submission.id] = mapped_submission
-					mapped_submission = db.get(submission.id)
-
-					constructed_string = f"<|startoftext|><|subreddit|>{mapped_submission['subreddit']}<|title|>{mapped_submission['title']}<|text|>{mapped_submission['text']}<|context_level|>0<|comment|>"
-					bot_reply_key = f"{bot}_{submission.id}"
-					if bot_reply_key in db:
-						continue
-
-					try:
-						new_reddit = asyncpraw.Reddit(site_name=bot)
-						result = self.model_runner.run(constructed_string)
-						submission = await new_reddit.submission(submission.id)
-						reply_text = ModelRunner.split_token_first_comment(prompt=constructed_string, completion=result)
-						if reply_text is None:
-							logger.error(":: Failed to split first comment text")
+	async def handle_new_submissions(self, subreddit: Subreddit):
+		with shelve.open(str(self.cache_path)) as db:
+			new_reddit = None
+			try:
+				await subreddit.load()
+				async for submission in subreddit.new(limit=5):
+					await submission.load()
+					if 'imgur.com' in submission.url or 'i.redd.it' in submission.url:
+						logger.info(f":: Submission contains image URL: {submission.url}")
+						text_key = f"{submission.id}-text"
+						if db.get(text_key) is not None:
+							text = db.get(text_key)
 						else:
-							reply = await submission.reply(reply_text)
-							await reply.load()
-							logger.info(f"{bot} has Replied to Submission: at https://www.reddit.com{reply.permalink}")
+							text = await self.model_runner.caption_processor.caption_image_from_url(submission.url)
+							db[text_key] = text
+					else:
+						logger.debug(f":: Submission does not contain image URL: {submission.url}")
+						text = submission.selftext
 
-						db[bot_reply_key] = True
-					except Exception as e:
-						logger.error(f"Failed to reply, {e}")
-						db[bot_reply_key] = True
-					finally:
-						if new_reddit is None:
-							pass
-						else:
-							await new_reddit.close()
-		finally:
-			db.close()
+					for bot in self.bot_map.keys():
+						personality = self.bot_map[bot]
+						mapped_submission = {
+							"subreddit": 'r/' + personality,
+							"title": submission.title,
+							"text": text
+						}
+						db[submission.id] = mapped_submission
+						mapped_submission = db.get(submission.id)
+
+						constructed_string = f"<|startoftext|><|subreddit|>{mapped_submission['subreddit']}<|title|>{mapped_submission['title']}<|text|>{mapped_submission['text']}<|context_level|>0<|comment|>"
+						bot_reply_key = f"{bot}_{submission.id}"
+						if bot_reply_key in db:
+							continue
+
+						try:
+							new_reddit = asyncpraw.Reddit(site_name=bot)
+							result = self.model_runner.run(constructed_string)
+							submission = await new_reddit.submission(submission.id)
+							reply_text = self.model_runner.split_token_first_comment(prompt=constructed_string, completion=result)
+							if reply_text is None:
+								logger.error(":: Failed to split first comment text")
+							else:
+								reply = await submission.reply(reply_text)
+								await reply.load()
+								logger.info(f"{bot} has Replied to Submission: at https://www.reddit.com{reply.permalink}")
+
+							db[bot_reply_key] = True
+						except Exception as e:
+							logger.error(f"Failed to reply, {e}")
+							db[bot_reply_key] = True
+						finally:
+							if new_reddit is None:
+								pass
+							else:
+								await new_reddit.close()
+			finally:
+				db.close()
 
 	async def send_comment_reply(self, comment: Comment, responding_bot: str, reply_text: str):
 		new_reddit = asyncpraw.Reddit(site_name=responding_bot)
@@ -346,15 +458,16 @@ class RedditRunner(object):
 			await new_reddit.close()
 
 	async def handle_new_comments(self, subreddit, reddit):
+		counter = 0
 		with shelve.open(str(self.cache_path)) as db:
-			async for comment in subreddit.stream.comments(skip_existing=False, pause_after=0):
-				await self.handle_new_submissions(subreddit)
-				if comment.id in db:
+			async for comment in subreddit.stream.comments(skip_existing=True, pause_after=0):
+				counter += 1
+				if counter % 10 == 0 or counter == 0:
 					await self.handle_new_submissions(subreddit)
-					continue
 				if comment is None:
-					await self.handle_new_submissions(subreddit)
+					await asyncio.sleep(10)
 					continue
+
 
 				submission_id = comment.submission
 
@@ -369,12 +482,21 @@ class RedditRunner(object):
 					"text": submission.selftext
 				}
 
+				if int(submission.num_comments) > 250:
+					logger.debug(f":: Comment Has More Than 250 Replies, Skipping")
+					db[comment.id] = True
+					continue
+
 				constructed_string = f"<|startoftext|><|subreddit|>{mapped_submission['subreddit']}<|title|>{mapped_submission['title']}<|text|>{mapped_submission['text']}"
 				constructed_string += await self.construct_context_string(comment)
 				result = self.model_runner.run(constructed_string)
-				cleaned_text: str = ModelRunner.clean_text(result, constructed_string)
-				await self.send_comment_reply(comment, responding_bot, cleaned_text)
-				db[comment.id] = True
+				if result is None:
+					db[comment.id] = True
+					continue
+				else:
+					cleaned_text: str = self.model_runner.clean_text(result, constructed_string)
+					await self.send_comment_reply(comment, responding_bot, cleaned_text)
+					db[comment.id] = True
 
 	async def run(self):
 		self.create_post_string()
@@ -387,4 +509,4 @@ class RedditRunner(object):
 				await self.handle_new_comments(subreddit=subreddit, reddit=reddit)
 			except Exception as e:
 				logger.error(f"An error has occurring during the primary loop, continuing {e}")
-				continue
+				raise e

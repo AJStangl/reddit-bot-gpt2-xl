@@ -22,5 +22,13 @@
   {
     "name": "DougBotGPT",
     "personality": "ShitPostingPoems"
+  },
+  {
+    "name": "CoopBot-GPT2",
+    "personality": "MoneyBoat"
+  },
+  {
+    "name": "PlayHouseBot-Gpt2",
+    "personality": "CoopAndPabloPlayHouse"
   }
 ]
