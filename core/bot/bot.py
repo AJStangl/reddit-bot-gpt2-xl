@@ -7,9 +7,10 @@ from typing import Optional
 import random
 import aiohttp
 import asyncpraw
+import asyncprawcore
 import torch
 from accelerate import Accelerator
-from asyncpraw.models import Comment, Subreddit
+from asyncpraw.models import Comment, Subreddit, Submission
 from diffusers import StableDiffusionPipeline, AutoencoderKL, UNet2DConditionModel, DPMSolverMultistepScheduler
 from diffusers.pipelines.stable_diffusion import StableDiffusionSafetyChecker
 from dotenv import load_dotenv
@@ -19,6 +20,8 @@ from PIL import Image
 import re
 from transformers import logging as transformers_logging
 from transformers import pipeline
+import asyncprawcore
+
 
 transformers_logging.set_verbosity(transformers_logging.FATAL)
 
@@ -94,23 +97,16 @@ class ImageGenerator(object):
 		return pipeline
 
 	@torch.autocast("cuda")
-	def create_image(self, prompt: str) -> (str, dict):
+	def create_image(self, prompt: str) -> (str, dict): # make async
 		pipe: StableDiffusionPipeline = self.assemble_model(self.model_path)
 		negative_prompt = "(((deformed))), blurry, bad anatomy, disfigured, poorly drawn face, mutation, mutated, (extra_limb), (ugly), (poorly drawn hands), fused fingers, messy drawing, broken legs censor, censored, censor_bar, multiple breasts, (mutated hands and fingers:1.5), (long body :1.3), (mutation, poorly drawn :1.2), black-white, bad anatomy, liquid body, liquidtongue, disfigured, malformed, mutated, anatomical nonsense, text font ui, error, malformed hands, long neck, blurred, lowers, low res, bad anatomy, bad proportions, bad shadow, uncoordinated body, unnatural body, fused breasts, bad breasts, huge breasts, poorly drawn breasts, extra breasts, liquid breasts, heavy breasts, missingbreasts, huge haunch, huge thighs, huge calf, bad hands, fused hand, missing hand, disappearing arms, disappearing thigh, disappearing calf, disappearing legs, fusedears, bad ears, poorly drawn ears, extra ears, liquid ears, heavy ears, missing ears, old photo, low res, black and white, black and white filter, colorless, (((deformed))), blurry, bad anatomy, disfigured, poorly drawn face, mutation, mutated, (extra_limb), (ugly), (poorly drawn hands), fused fingers, messy drawing, broken legs censor, censored, censor_bar, multiple breasts, (mutated hands and fingers:1.5), (long body :1.3), (mutation, poorly drawn :1.2), black-white, bad anatomy, liquid body, liquid tongue, disfigured, malformed, mutated, anatomical nonsense, text font ui, error, malformed hands, long neck, blurred, lowers, low res, bad anatomy, bad proportions, bad shadow, uncoordinated body, unnatural body, fused breasts, bad breasts, huge breasts, poorly drawn breasts, extra breasts, liquid breasts, heavy breasts, missing breasts, huge haunch, huge thighs, huge calf, bad hands, fused hand, missing hand, disappearing arms, disappearing thigh, disappearing calf, disappearing legs, fused ears, bad ears, poorly drawn ears, extra ears, liquid ears, heavy ears, missing ears, old photo, low res, black and white, black and white filter, colorless, (((deformed))), blurry, bad anatomy, disfigured, poorly drawn face, mutation, mutated, (extra_limb), (ugly), (poorly drawn hands), fused fingers, messy drawing, broken legs censor, censored, censor_bar, multiple breasts, (mutated hands and fingers:1.5), (long body :1.3), (mutation, poorly drawn :1.2), black-white, bad anatomy, liquid body, liquid tongue, disfigured, malformed, mutated, anatomical nonsense, text font ui, error, malformed hands, long neck, blurred, lowers, low res, bad anatomy, bad proportions, bad shadow, uncoordinated body, unnatural body, fused breasts, bad breasts, huge breasts, poorly drawn breasts, extra breasts, liquid breasts, heavy breasts, missing breasts, huge haunch, huge thighs, huge calf, bad hands, fused hand, missing hand, disappearing arms, disappearing thigh, disappearing calf, disappearing legs, fused ears, bad ears, poorly drawn ears, extra ears, liquid ears, heavy ears, missing ears, (((deformed))), blurry, bad anatomy, disfigured, poorly drawn face, mutation, mutated, (extra_limb), (ugly), (poorly drawn hands), fused fingers, messy drawing, broken legs censor, censored, censor_bar, multiple breasts, (mutated hands and fingers:1.5), (long body :1.3), (mutation, poorly drawn :1.2), black-white, bad anatomy, liquid body, liquidtongue, disfigured, malformed, mutated, anatomical nonsense, text font ui, error, malformed hands, long neck, blurred, lowers, low res, bad anatomy, bad proportions, bad shadow, uncoordinated body, unnatural body, fused breasts, bad breasts, huge breasts, poorly drawn breasts, extra breasts, liquid breasts, heavy breasts, missingbreasts, huge haunch, huge thighs, huge calf, bad hands, fused hand, missing hand, disappearing arms, disappearing thigh, disappearing calf, disappearing legs, fusedears, bad ears, poorly drawn ears, extra ears, liquid ears, heavy ears, missing ears"
 		default_prompt = "realistic, high quality, hd"
 
 		try:
 			pipe: StableDiffusionPipeline = pipe.to(torch_device="cuda", torch_dtype=torch.float16)
-
-
 			new_prompt = f"{prompt}, {default_prompt}"
 			guidance_scale = random.randint(6, 12)
 			num_inference_steps = random.randint(20, 75)
-			args = {
-				"model": pipe.config_name,
-				"guidance_scale": str(guidance_scale),
-				"num_inference_steps": str(num_inference_steps)
-			}
 
 			height = 512
 			width = [512, 512]
@@ -122,7 +118,7 @@ class ImageGenerator(object):
 				guidance_scale=guidance_scale,
 				num_inference_steps=num_inference_steps).images[0]
 
-			upload_file = f"temp.png"
+			upload_file = f"D:\\code\\repos\\reddit-bot-gpt2-xl\\temp.png"
 			initial_image.save(upload_file)
 			return upload_file
 
@@ -130,7 +126,7 @@ class ImageGenerator(object):
 			logger.error(e)
 			return None
 
-		finally:
+		finally: # not sure if good idea of makes things worse
 			del pipe
 			torch.cuda.empty_cache()
 
@@ -140,11 +136,11 @@ class ModelRunner:
 		self.model_path: str = model_path
 		self.device: torch.device = torch.device('cuda')
 		self.tokenizer: GPT2Tokenizer = self.load_tokenizer(self.model_path)
-		self.model: GPT2LMHeadModel = self.load_model(self.model_path)
+		self.text_model: GPT2LMHeadModel = self.load_model(self.model_path)
 		self.detoxify: pipeline = pipeline("text-classification", model="unitary/toxic-bert", device=self.device)
 		self.caption_processor: CaptionProcessor = CaptionProcessor()
 		self.image_generator: ImageGenerator = ImageGenerator(model_path=os.environ.get("IMAGE_MODEL_PATH"), device_name="cuda")
-		self.model.to(self.device)
+		self.text_model.to(self.device)
 
 	def run(self, text) -> str:
 		encoding = self.get_encoding(text)
@@ -189,7 +185,7 @@ class ModelRunner:
 				'num_return_sequences': 1
 			}
 			logging.getLogger("transformers").setLevel(logging.FATAL)
-			for i, _ in enumerate(self.model.generate(**args)):
+			for i, _ in enumerate(self.text_model.generate(**args)):
 				generated_texts = self.tokenizer.decode(_, skip_special_tokens=False, clean_up_tokenization_spaces=True)
 				generated_texts = generated_texts.split("<|startoftext|>")
 				good_line = ""
@@ -297,8 +293,6 @@ class RedditRunner(object):
 		self.bot_map: dict = self.set_bot_configration()
 		logger.info(":: Initializing Model")
 		self.model_runner: ModelRunner = ModelRunner(os.environ.get("MODEL_PATH"))
-		logger.info(":: Initializing Captioning Model")
-		logger.info(":: Initializing Queues")
 		self.queue: asyncio.Queue = asyncio.Queue()
 
 
@@ -337,10 +331,10 @@ class RedditRunner(object):
 		out += f"<|context_level|>{len(things) + 1}<|comment|>"
 		return out
 
-	def create_post_string(self):
+	def create_post_string(self): # this make a gpu hot
 		chosen_bot_key = random.choice(list(self.bot_map.keys()))
 		bot_config = self.bot_map[chosen_bot_key]
-		constructed_string = f"<|startoftext|><|subreddit|>r/{bot_config}"
+		constructed_string = f"<|startoftext|><|subreddit|>r/{bot_config}" # make configurable
 		result = self.model_runner.run(constructed_string)
 
 		pattern = re.compile(r'<\|([a-zA-Z0-9_]+)\|>(.*?)(?=<\|[a-zA-Z0-9_]+\|>|$)', re.DOTALL)
@@ -354,34 +348,54 @@ class RedditRunner(object):
 			'subreddit': os.environ.get("SUBREDDIT_TO_MONITOR")
 		})
 
-	async def check_queue_hourly(self):
+	async def create_post_hourly_task(self):
 		while True:
 			try:
-				await asyncio.sleep(3600)
-				if not self.queue.empty():
-					logger.info("Queue Message Present, processing")
-					result = self.queue.get_nowait()
-					await self.create_reddit_post(result)
+				await asyncio.sleep(3600) # 1 hour, make it a configuration
+				if self.queue.empty():
+					logger.debug("Queue is empty. Creating new post item")
+					self.create_post_string() # MAKE THING GO BURRR
+					continue
 				else:
-					logger.debug("Queue is empty.")
-					self.create_post_string()
+					await asyncio.sleep(30) # need to task somewhere...
+					continue
 			except Exception as e:
 				logger.error(e)
 				continue
+
+	async def check_post_queue_async(self):
+		try:
+			if not self.queue.empty(): # process post
+				logger.info("Queue Message Present, processing")
+				result = self.queue.get_nowait() # maybe make this a blocking call?
+				await self.create_reddit_post(result)
+			else:
+				logger.debug("Queue is empty.")
+		except Exception as e:
+			logger.error(e)
 
 	async def create_reddit_post(self, data: dict):
 		bot = data.get("bot")
 		subreddit_name = data.get("subreddit")
 		new_reddit = asyncpraw.Reddit(site_name=bot)
+		create_image = random.choice([False, False])
 		try:
 			subreddit = await new_reddit.subreddit(subreddit_name)
+			await subreddit.load() # race... condition ... here
 			title = data.get("title")
 			text = data.get('text')
-			result = await subreddit.submit(title, selftext=text)
-			await result.load()
-			logger.info(f"{bot} has Created A Submission: at https://www.reddit.com{result.permalink}")
+			if create_image: # THIS WILL FUCKING BLOW UP ALWAYS, IDK WHY
+				image_path = self.model_runner.image_generator.create_image(data.get("text"))
+				submission: Submission = await subreddit.submit_image(title, image_path, without_websockets=True, nsfw=True)
+				logger.info(f"{bot} has Created A Submission With Image: at https://www.reddit.com")
+				return
+			else:
+				result = await subreddit.submit(title, selftext=text) # text post
+				await result.load()
+				logger.info(f"{bot} has Created A Submission: at https://www.reddit.com{result.permalink}")
 		except Exception as e:
 			logger.error(e)
+			raise e
 		finally:
 			await new_reddit.close()
 
@@ -391,8 +405,11 @@ class RedditRunner(object):
 			try:
 				await subreddit.load()
 				async for submission in subreddit.new(limit=5):
-					await submission.load()
-					if 'imgur.com' in submission.url or 'i.redd.it' in submission.url:
+					await submission.load() # race condition here, need to fix
+					if 'imgur.com' not in submission.url and 'i.redd.it' not in submission.url:
+						logger.debug(f":: Submission does not contain image URL: {submission.url}")
+						text = submission.selftext
+					else:  # hack, hack, hack, think about galery batch captioning
 						logger.info(f":: Submission contains image URL: {submission.url}")
 						text_key = f"{submission.id}-text"
 						if db.get(text_key) is not None:
@@ -400,14 +417,11 @@ class RedditRunner(object):
 						else:
 							text = await self.model_runner.caption_processor.caption_image_from_url(submission.url)
 							db[text_key] = text
-					else:
-						logger.debug(f":: Submission does not contain image URL: {submission.url}")
-						text = submission.selftext
 
 					for bot in self.bot_map.keys():
 						personality = self.bot_map[bot]
 						mapped_submission = {
-							"subreddit": 'r/' + personality,
+							"subreddit": 'r/' + personality, # something, something, configuration
 							"title": submission.title,
 							"text": text
 						}
@@ -461,8 +475,9 @@ class RedditRunner(object):
 		counter = 0
 		with shelve.open(str(self.cache_path)) as db:
 			async for comment in subreddit.stream.comments(skip_existing=True, pause_after=0):
+				await self.check_post_queue_async()
 				counter += 1
-				if counter % 10 == 0 or counter == 0:
+				if counter % 10 == 0:
 					await self.handle_new_submissions(subreddit)
 				if comment is None:
 					await asyncio.sleep(10)
@@ -482,13 +497,13 @@ class RedditRunner(object):
 					"text": submission.selftext
 				}
 
-				if int(submission.num_comments) > 250:
+				if int(submission.num_comments) > 250: # should probably make this a configuration...
 					logger.debug(f":: Comment Has More Than 250 Replies, Skipping")
 					db[comment.id] = True
 					continue
 
 				constructed_string = f"<|startoftext|><|subreddit|>{mapped_submission['subreddit']}<|title|>{mapped_submission['title']}<|text|>{mapped_submission['text']}"
-				constructed_string += await self.construct_context_string(comment)
+				constructed_string += await self.construct_context_string(comment) # continue building the input, cache as we go along. (Really need to re-think caching mechanism)
 				result = self.model_runner.run(constructed_string)
 				if result is None:
 					db[comment.id] = True
@@ -499,14 +514,16 @@ class RedditRunner(object):
 					db[comment.id] = True
 
 	async def run(self):
-		self.create_post_string()
-		task = asyncio.create_task(self.check_queue_hourly())
+		asyncio.create_task(self.create_post_hourly_task()) # I think this works...Really need to rethink this.
 		while True:
 			try:
 				reddit = asyncpraw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
 				sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
 				subreddit = await reddit.subreddit(sub_names)
-				await self.handle_new_comments(subreddit=subreddit, reddit=reddit)
+				await self.handle_new_comments(subreddit=subreddit, reddit=reddit) # main process, if it fails we catch and restart
+			except asyncprawcore.exceptions.RequestException as e:
+				logger.error(e)
+				continue
 			except Exception as e:
 				logger.error(f"An error has occurring during the primary loop, continuing {e}")
-				raise e
+				raise e # something blew up, so we exit, which is why we have run.ps1 that captures the exit code and restarts the process
