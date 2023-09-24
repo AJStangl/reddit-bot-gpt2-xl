@@ -14,8 +14,7 @@ from asyncpraw.models import Comment, Subreddit, Submission
 from diffusers import StableDiffusionPipeline, AutoencoderKL, UNet2DConditionModel, DPMSolverMultistepScheduler
 from diffusers.pipelines.stable_diffusion import StableDiffusionSafetyChecker
 from dotenv import load_dotenv
-from transformers import GPT2Tokenizer, GPT2LMHeadModel, BlipProcessor, BlipForConditionalGeneration, CLIPTextModel, \
-	CLIPTokenizer, CLIPImageProcessor
+from transformers import GPT2Tokenizer, GPT2LMHeadModel, BlipProcessor, BlipForConditionalGeneration, CLIPTextModel, CLIPTokenizer, CLIPImageProcessor
 from PIL import Image
 import re
 from transformers import logging as transformers_logging
@@ -331,7 +330,7 @@ class RedditRunner(object):
 		out += f"<|context_level|>{len(things) + 1}<|comment|>"
 		return out
 
-	def create_post_string(self): # this make a gpu hot
+	def create_post_string(self):
 		chosen_bot_key = random.choice(list(self.bot_map.keys()))
 		bot_config = self.bot_map[chosen_bot_key]
 		constructed_string = f"<|startoftext|><|subreddit|>r/{bot_config}" # make configurable
@@ -354,7 +353,7 @@ class RedditRunner(object):
 				await asyncio.sleep(3600) # 1 hour, make it a configuration
 				if self.queue.empty():
 					logger.debug("Queue is empty. Creating new post item")
-					self.create_post_string() # MAKE THING GO BURRR
+					self.create_post_string()
 					continue
 				else:
 					await asyncio.sleep(30) # need to task somewhere...
@@ -399,7 +398,7 @@ class RedditRunner(object):
 		finally:
 			await new_reddit.close()
 
-	async def handle_new_submissions(self, subreddit: Subreddit):
+	async def handle_submission_stream(self, subreddit: Subreddit):
 		with shelve.open(str(self.cache_path)) as db:
 			new_reddit = None
 			try:
@@ -457,7 +456,7 @@ class RedditRunner(object):
 			finally:
 				db.close()
 
-	async def send_comment_reply(self, comment: Comment, responding_bot: str, reply_text: str):
+	async def handle_comment_stream(self, comment: Comment, responding_bot: str, reply_text: str):
 		new_reddit = asyncpraw.Reddit(site_name=responding_bot)
 		try:
 			await comment.load()
@@ -471,16 +470,16 @@ class RedditRunner(object):
 		finally:
 			await new_reddit.close()
 
-	async def handle_new_comments(self, subreddit, reddit):
+	async def primary_process(self, subreddit, reddit):
 		counter = 0
 		with shelve.open(str(self.cache_path)) as db:
 			async for comment in subreddit.stream.comments(skip_existing=True, pause_after=0):
 				await self.check_post_queue_async()
 				counter += 1
 				if counter % 10 == 0:
-					await self.handle_new_submissions(subreddit)
+					await self.handle_submission_stream(subreddit)
 				if comment is None:
-					await asyncio.sleep(10)
+					await asyncio.sleep(1)
 					continue
 
 
@@ -510,20 +509,20 @@ class RedditRunner(object):
 					continue
 				else:
 					cleaned_text: str = self.model_runner.clean_text(result, constructed_string)
-					await self.send_comment_reply(comment, responding_bot, cleaned_text)
+					await self.handle_comment_stream(comment, responding_bot, cleaned_text)
 					db[comment.id] = True
 
 	async def run(self):
-		asyncio.create_task(self.create_post_hourly_task()) # I think this works...Really need to rethink this.
+		asyncio.create_task(self.create_post_hourly_task())
 		while True:
 			try:
 				reddit = asyncpraw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
 				sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
 				subreddit = await reddit.subreddit(sub_names)
-				await self.handle_new_comments(subreddit=subreddit, reddit=reddit) # main process, if it fails we catch and restart
+				await self.primary_process(subreddit=subreddit, reddit=reddit)
 			except asyncprawcore.exceptions.RequestException as e:
 				logger.error(e)
 				continue
 			except Exception as e:
 				logger.error(f"An error has occurring during the primary loop, continuing {e}")
-				raise e # something blew up, so we exit, which is why we have run.ps1 that captures the exit code and restarts the process
+				raise e
