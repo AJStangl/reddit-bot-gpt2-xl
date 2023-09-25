@@ -1,14 +1,18 @@
-from core.bot.bot import RedditRunner
+from core.bot.bot import Bot
+import logging
 
 
-if __name__ == '__main__':
-    import asyncio
+async def main():
+    bot = Bot()
     try:
-        asyncio.run(RedditRunner().run())
-    except KeyboardInterrupt:
-        exit(0)
-    except Exception as e:
-        print(f"Error: {e}")
+        await bot.run()
+    except:
+        logger.error("An error occurred", exc_info=True)
         exit(1)
 
 
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger(__name__)
+    import asyncio
+    asyncio.run(main())
