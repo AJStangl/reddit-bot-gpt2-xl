@@ -1,15 +1,15 @@
 [
   {
     "name": "KimmieBotGPT",
-    "personality": "OnlyFans"
+    "personality": "OffMyChest"
   },
   {
     "name": "LauraBotGPT",
-    "personality": "CandlesAndWax"
+    "personality": "BathAndBodyWorks"
   },
   {
     "name": "AlbertBotGPT",
-    "personality": "TechnologyAndArtificialIntelligence"
+    "personality": "CHATGPT"
   },
   {
     "name": "JakeBotGPT",
@@ -17,7 +17,7 @@
   },
   {
     "name": "MikeBotGPT",
-    "personality": "PCGamingMasterRace"
+    "personality": "PoliticalRants"
   },
   {
     "name": "DougBotGPT",
@@ -25,10 +25,10 @@
   },
   {
     "name": "CoopBot-GPT2",
-    "personality": "MoneyBoat"
+    "personality": "JerseyMikes"
   },
   {
     "name": "PlayHouseBot-Gpt2",
-    "personality": "CoopAndPabloPlayHouse"
+    "personality": "AskReddit"
   }
 ]

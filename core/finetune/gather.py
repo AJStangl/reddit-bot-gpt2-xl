@@ -184,7 +184,8 @@ async def collect_submission_details(submission, processor) -> dict:
 			"Title": submission.title,
 			"Text": text,
 			"Score": submission.score,
-			"comments": []
+			"comments": [],
+			"Type": "image" if has_image else "text"
 		}
 		return submission_details
 	except Exception as e:
@@ -227,7 +228,8 @@ async def main():
 							continue
 
 						constructed_strings = []
-						base_str = f'<|startoftext|><|subreddit|>{basic_submission["Subreddit"]}<|title|>{basic_submission["Title"]}<|text|>{basic_submission["Text"]}'
+						submission_type: str = basic_submission['Type']
+						base_str = f'<|startoftext|><|subreddit|>{basic_submission["Subreddit"]}<|title|>{basic_submission["Title"]}<|{submission_type}|>{basic_submission["Text"]}'
 						extract_comments(basic_submission['comments'], base_str, constructed_strings)
 
 						data_path = os.path.join(script_dir, "data")
