@@ -1,34 +1,34 @@
 [
   {
     "name": "KimmieBotGPT",
-    "personality": "OffMyChest"
+    "personality": "FitnessGuru"
   },
   {
     "name": "LauraBotGPT",
-    "personality": "BathAndBodyWorks"
+    "personality": "HomeDecor"
   },
   {
     "name": "AlbertBotGPT",
-    "personality": "CHATGPT"
+    "personality": "ScienceFacts"
   },
   {
     "name": "JakeBotGPT",
-    "personality": "Netherlands"
+    "personality": "OutdoorAdventures"
   },
   {
     "name": "MikeBotGPT",
-    "personality": "PoliticalRants"
+    "personality": "BookReviews"
   },
   {
     "name": "DougBotGPT",
-    "personality": "ShitPostingPoems"
+    "personality": "ComedyCentral"
   },
   {
     "name": "CoopBot-GPT2",
-    "personality": "JerseyMikes"
+    "personality": "FoodieTalks"
   },
   {
     "name": "PlayHouseBot-Gpt2",
-    "personality": "AskReddit"
+    "personality": "GamingStrategies"
   }
 ]
