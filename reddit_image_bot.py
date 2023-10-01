@@ -114,7 +114,7 @@ class RedditImageBot:
 
 			final_remote_path = self.write_image_to_cloud(image_output)
 
-			flair_id = self.flair_map.get(model_name)
+			flair_id = self.flair_map.get(model_name.lower())
 
 			sub.submit_image(title=f"{title}", image_path=image_output, nsfw=True, timeout=60, without_websockets=True, flair_id=flair_id)
 
@@ -150,6 +150,8 @@ class RedditImageBot:
 		except Exception as e:
 			logger.exception(e)
 			return False
+		finally:
+			time.sleep(60)
 
 
 class DataMapper:
@@ -201,8 +203,8 @@ class DataMapper:
 			best_caption = all_known_captions[most_similar_idx]
 			random_lora_type = [item['type'] for item in self.model_type_negatives if item['name'] == random_lora_name][0]
 			negative_prompt = self.negative_prompts.get(random_lora_type)
-			negative_prompt += self.negative_prompts.get("General")
-			negative_prompt += self.negative_prompts.get("Universal")
+			# negative_prompt += self.negative_prompts.get("General")
+			# negative_prompt += self.negative_prompts.get("Universal")
 
 			negative_prompt_string = ", ".join(negative_prompt).strip()
 
@@ -315,12 +317,12 @@ class ImageRunner:
 		self.reddit_handler: RedditImageBot = RedditImageBot()
 		self.image_bot: ImageBot = ImageBot()
 		self.data_mapper: DataMapper = DataMapper()
-		self.text_lock_path = "D:\\code\\repos\\reddit-bot-gpt2-xl\\locks\\text.lock"
-		self.image_lock_path = "D:\\code\\repos\\reddit-bot-gpt2-xl\\locks\\sd.lock"
+		self.text_lock_path = os.path.join(os.environ.get("LOCK_PATH"), "text.lock")
+		self.image_lock_path = os.path.join(os.environ.get("LOCK_PATH"), "sd.lock")
 
 	def create_lock(self):
 		try:
-			logger.info("Creating lock")
+			logger.debug("Creating lock")
 			with open(self.image_lock_path, "wb") as handle:
 				handle.write(b"")
 		except Exception as e:
@@ -328,7 +330,7 @@ class ImageRunner:
 
 	def clear_lock(self):
 		try:
-			logger.info("Clearing lock")
+			logger.debug("Clearing lock")
 			if os.path.exists(self.image_lock_path):
 				os.remove(self.image_lock_path)
 			else:

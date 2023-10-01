@@ -14,18 +14,17 @@ load_dotenv()
 
 def signal_handler(signum, frame):
 	logger.info("Caught signal, stopping threads.")
-	os.remove("locks")
 	exit(1)
 
 
 if __name__ == '__main__':
 	logging.basicConfig(level=logging.INFO, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
-	if os.path.exists("D:\\code\\repos\\reddit-bot-gpt2-xl\\locks"):
-		for item in os.listdir("D:\\code\\repos\\reddit-bot-gpt2-xl\\locks"):
-			item_path = os.path.join("D:\\code\\repos\\reddit-bot-gpt2-xl\\locks", item)
+	if os.path.exists(os.environ.get("LOCK_PATH")):
+		for item in os.listdir(os.environ.get("LOCK_PATH")):
+			item_path = os.path.join(os.environ.get("LOCK_PATH"), item)
 			os.remove(item_path)
 
-	os.makedirs("D:\\code\\repos\\reddit-bot-gpt2-xl\\locks", exist_ok=True)
+	os.makedirs(os.environ.get("LOCK_PATH"), exist_ok=True)
 	logger = logging.getLogger(__name__)
 	image_runner: ImageRunner = ImageRunner()
 	bot_runner: BotRunner = BotRunner()

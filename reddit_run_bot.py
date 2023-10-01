@@ -65,19 +65,19 @@ class CaptionProcessor:
 			return result
 
 
-class ModelRunner:
+class BotComputationalHandler:
 	def __init__(self, model_path: str):
 		self.required_model_load = True
 		self.model_path: str = model_path
 		self.device: torch.device = torch.device('cuda')
 		self.tokenizer: GPT2Tokenizer = self.load_tokenizer(self.model_path)
-		self.detoxify: pipeline = pipeline("text-classification", model="unitary/toxic-bert",
-										   device=torch.device("cpu"))
+		self.detoxify: pipeline = pipeline("text-classification", model="unitary/toxic-bert", device=torch.device("cpu"))
 		self.caption_processor: CaptionProcessor = CaptionProcessor("cpu")
 		self.text_model: GPT2LMHeadModel = self.load_model(self.model_path)
 		self.text_model.to(self.device)
-		self.text_lock_path = "D:\\code\\repos\\reddit-bot-gpt2-xl\\locks\\text.lock"
-		self.image_lock_path = "D:\\code\\repos\\reddit-bot-gpt2-xl\\locks\\sd.lock"
+		self.text_lock_path = os.path.join(os.environ.get("LOCK_PATH"), "text.lock")
+		self.image_lock_path = os.path.join(os.environ.get("LOCK_PATH"), "sd.lock")
+		self.generation_count = 0
 
 	def create_lock(self):
 		try:
@@ -123,6 +123,9 @@ class ModelRunner:
 			raise Exception("I blew the fuck up exception", e)
 
 	def is_in_lock_state(self):
+		if self.generation_count % 10 == 0:
+			logger.info(f"The generation count Exceeds, by-passing lock")
+			return False
 		if os.path.exists(self.text_lock_path):
 			return True
 		if os.path.exists(self.image_lock_path):
@@ -158,9 +161,9 @@ class ModelRunner:
 				'do_sample': True,
 				'num_return_sequences': 1
 			}
-			temp = ""
+			completion = ""
 
-			logger.info(":: Starting Text Generation")
+			logger.debug(":: Starting Text Generation")
 			for i, _ in enumerate(self.text_model.generate(**args)):
 				generated_texts = self.tokenizer.decode(_, skip_special_tokens=False, clean_up_tokenization_spaces=True)
 				generated_texts = generated_texts.split("<|startoftext|>")
@@ -168,18 +171,29 @@ class ModelRunner:
 				for line in generated_texts:
 					good_line = line
 
-				temp = "<|startoftext|>" + good_line
+				completion = "<|startoftext|>" + good_line
 
 			end_time = time.time()
 			elapsed_time = end_time - start_time
 			logger.info(f":: Time taken for run_generation: {elapsed_time:.4f} seconds")
-			return temp
+			info_string = \
+f"""
+===================================
+
+Prompt: {self.tokenizer.decode(inputs[0], skip_special_tokens=True)}
+Completion: {completion}
+
+===================================
+"""
+			logger.info(info_string)
+			return completion
 
 		except Exception as e:
 			logger.info(e)
 			exit(1)
 		finally:
 			self.clear_lock()
+			self.generation_count += 1
 
 	def clean_text(self, text, input_string) -> Optional[str]:
 		try:
@@ -257,7 +271,7 @@ class ModelRunner:
 class BotRunner:
 	def __init__(self):
 		self.queue_size = 0
-		self.model_runner = ModelRunner(model_path=os.environ.get("MODEL_PATH"))
+		self.model_runner = BotComputationalHandler(model_path=os.environ.get("MODEL_PATH"))
 		self.bot_map: dict = self.read_bot_configuration()
 		self.next_hour_current_time = 0
 		self.reddit = praw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
@@ -276,7 +290,6 @@ class BotRunner:
 
 			input_data: dict = self.result_queue.get()
 			reply_id = input_data.get("reply_id")
-			new_reddit = None
 			try:
 				reply_text = input_data.get("text")
 				reply_bot = input_data.get("responding_bot")
@@ -363,16 +376,16 @@ class BotRunner:
 
 			time.sleep(1)
 
-	def get_value_by_key(self, key, filename='cache.json'):
+	def get_value_by_key(self, key, filename=os.environ.get("CACHE_PATH")):
 		existing_data = self.load_dict_from_file(filename)
 		return existing_data.get(key, None)
 
-	def set_value_by_key(self, key, value, filename='cache.json'):
+	def set_value_by_key(self, key, value, filename=os.environ.get("CACHE_PATH")):
 		existing_data = self.load_dict_from_file(filename)
 		data = {key: value}
 		existing_data.update(data)
 
-	def load_dict_from_file(self, filename='cache.json', max_retries=3, retry_delay=1):
+	def load_dict_from_file(self, filename=os.environ.get("CACHE_PATH"), max_retries=3, retry_delay=1):
 		for attempt in range(max_retries):
 			try:
 				with open(filename, 'r') as f:
@@ -386,12 +399,8 @@ class BotRunner:
 		return {}
 
 	def read_bot_configuration(self) -> dict:
-		bot_map = {}
 		with open(os.environ.get("CONFIG_PATH"), 'r') as f:
-			config = json.load(f)
-			for item in config:
-				bot_map[item['name']] = item['personality']
-		return bot_map
+			return {item['name']: item['personality'] for item in json.load(f)}
 
 	def construct_context_string(self, comment: Comment) -> str:
 		things = []
@@ -402,7 +411,6 @@ class BotRunner:
 				if counter == 12:
 					break
 				comment_key = str(current_comment.id) + "-" + 'text'
-
 				cached_thing = self.get_value_by_key(comment_key)
 				if cached_thing is not None:
 					cached = {
@@ -483,7 +491,7 @@ class BotRunner:
 			return
 
 		if str(submission.url).endswith(('.png', '.jpg', '.jpeg')):
-			logger.debug(f":: Submission does not contain image URL: {submission.url}")
+			logger.debug(f":: Submission contains image URL: {submission.url}")
 			text = self.model_runner.caption_processor.caption_image_from_url(submission.url)
 
 		else:
@@ -498,22 +506,21 @@ class BotRunner:
 				"title": submission.title,
 				"text": text
 			}
-
 			constructed_string = f"<|startoftext|><|subreddit|>{mapped_submission['subreddit']}<|title|>{mapped_submission['title']}<|text|>{mapped_submission['text']}<|context_level|>0<|comment|>"
-			bot_reply_key = f"{bot}_{submission.id}"
+			bot_reply_key = f"{bot}-{submission.id}"
 			bot_reply_value = self.get_value_by_key(bot_reply_key)
 			if bot_reply_value:
 				continue
-
-			data = {
-				'text': constructed_string,
-				'responding_bot': bot,
-				'subreddit': mapped_submission['subreddit'],
-				'reply_id': submission.id,
-				'type': 'submission'
-			}
-			self.set_value_by_key(bot_reply_key, True)
-			self.task_queue_handler(data)
+			else:
+				self.set_value_by_key(bot_reply_key, True)
+				data = {
+					'text': constructed_string,
+					'responding_bot': bot,
+					'subreddit': mapped_submission['subreddit'],
+					'reply_id': submission.id,
+					'type': 'submission'
+				}
+				self.task_queue_handler(data)
 
 	def process_comment(self, comment: Comment):
 		if comment is None:
@@ -557,63 +564,76 @@ class BotRunner:
 		except Exception as e:
 			logger.error(e)
 
+	def create_submission_task(self):
+		logger.info(":: Starting create_submission_task")
+		while True:
+			if datetime.timestamp(datetime.now()) > self.next_hour_current_time:
+				self.next_hour_current_time = datetime.timestamp(datetime.now() + timedelta(hours=3))
+				self.set_value_by_key('next_time_to_post', self.next_hour_current_time)
+				data = self.create_post_string()
+				self.create_reddit_post(data)
+			else:
+				logger.debug(f":: Next Post In {self.next_hour_current_time - datetime.timestamp(datetime.now())} Seconds")
+				time.sleep(10)
 
-	def run(self):
-		responding_thread = threading.Thread(target=self.responding_background_process, name="RespondingThread")
-		text_generation_background_thread = threading.Thread(target=self.text_generation_background_task, name="TextGenerationThread")
 
-		responding_thread.start()
-		text_generation_background_thread.start()
-
+	def comment_stream_task(self):
+		logger.info(":: Starting comment_stream_task")
 		sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
 		subreddit = self.reddit.subreddit(sub_names)
-
-		count = 0
-		logger.info(":: Starting Warm Up For Model Text Generation")
-		self.model_runner.run("<|startoftext|><|subreddit|>r/test<|title|>I Need to test the love inside me<|text|>Please Come And Help Me<|context_level|>0<|comment|>")
-		logger.info(f":: Starting Primary Loop, Iteration: {count}")
 		while True:
 			try:
-				for item in subreddit.stream.comments(pause_after=-1, skip_existing=True):
-					logger.debug(f":: Iteration: {count}, Item: {item}")
-					if datetime.timestamp(datetime.now()) > self.next_hour_current_time:
-						self.next_hour_current_time = datetime.timestamp(datetime.now() + timedelta(hours=3))
-						self.set_value_by_key('next_time_to_post', self.next_hour_current_time)
-						data = self.create_post_string()
-						self.create_reddit_post(data)
-					else:
-						logger.debug(f":: Next Post In {self.next_hour_current_time - datetime.timestamp(datetime.now())} Seconds")
-
-					if count % 10 == 0:
-						logger.debug(":: Checking For Submissions")
-						for x in subreddit.new(limit=5):
-							if isinstance(x, Submission):
-								time.sleep(1)
-								if x is None:
-									continue
-								self.process_submission(submission=x)
-								continue
-
-					if item is None:
-						count += 1
+				for comment in subreddit.stream.comments(pause_after=-1, skip_existing=True):
+					if comment is None:
+						time.sleep(1)
 						continue
 
-					comment_key = f"{item.id}-comment"
-					comment_seen = self.get_value_by_key(comment_key)
-					if comment_seen:
-						count += 1
-						continue
+					if isinstance(comment, Comment):
+						comment_key = f"{comment.id}-comment"
+						comment_seen = self.get_value_by_key(comment_key)
+						if comment_seen:
+							continue
 
-					if isinstance(item, Comment):
-						self.process_comment(comment=item)
+						self.process_comment(comment=comment)
 						self.set_value_by_key(comment_key, True)
-						count += 1
 
 			except Exception as e:
-				if e.args[0] == "I blew the fuck up exception":
-					logger.info(e)
-					raise e
-				else:
-					logger.info("An error has occurred during the primary loop", e)
-					time.sleep(1)
-					count += 1
+				logger.exception(e)
+				continue
+
+	def submission_stream_task(self):
+		logger.info(":: Starting submission_stream_task")
+		sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
+		subreddit = self.reddit.subreddit(sub_names)
+		while True:
+			try:
+				for submission in subreddit.stream.submissions(pause_after=-1, skip_existing=True):
+					if isinstance(submission, Submission):
+						if submission is None:
+							continue
+						else:
+							self.process_submission(submission=submission)
+			except Exception as e:
+				logger.exception(e)
+				continue
+
+	def run(self):
+
+		text_reply_thread = threading.Thread(target=self.responding_background_process, name="reply-thread")
+		text_reply_thread.start()
+
+		text_generation_thread = threading.Thread(target=self.text_generation_background_task, name="text-generation-thread")
+		text_generation_thread.start()
+
+		comment_stream_thread = threading.Thread(target=self.comment_stream_task, name="comment-stream-thread")
+		comment_stream_thread.start()
+
+		submission_stream_thread = threading.Thread(target=self.submission_stream_task, name="submission-stream-thread")
+		submission_stream_thread.start()
+
+		create_submission_thread = threading.Thread(target=self.create_submission_task, name="create-submission-thread")
+		create_submission_thread.start()
+
+		while True:
+			time.sleep(1)
+
