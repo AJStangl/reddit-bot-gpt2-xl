@@ -1,23 +1,23 @@
-import asyncio
 import json
 import logging
 import os
 import random
 import re
+import threading
 import time
 import warnings
 from datetime import datetime, timedelta
 from io import BytesIO
+from queue import Queue
 from typing import Optional
 
-import GPUtil
-import aiohttp
-import asyncpraw
-import asyncprawcore
+import praw
+import prawcore
+import requests
 import torch
 from PIL import Image
-from asyncpraw.models import Comment, Submission
 from dotenv import load_dotenv
+from praw.models import Comment, Submission
 from transformers import GPT2Tokenizer, GPT2LMHeadModel, BlipProcessor, BlipForConditionalGeneration
 from transformers import logging as transformers_logging
 from transformers import pipeline
@@ -27,7 +27,7 @@ transformers_logging.set_verbosity(transformers_logging.FATAL)
 
 load_dotenv()
 
-logging.basicConfig(level=logging.DEBUG, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
@@ -38,16 +38,14 @@ class CaptionProcessor:
 		self.processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-large")
 		self.model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large")
 
-	async def caption_image_from_url(self, image_url: str) -> str:
+	def caption_image_from_url(self, image_url: str) -> str:
 		result = ""
 		try:
-			async with aiohttp.ClientSession() as session:
-				async with session.get(image_url) as response:
-					if response.status != 200:
-						return ""
-					content = await response.read()
+			response = requests.get(image_url)
+			if response.status_code != 200:
+				return ""
+			content = response.content
 
-			# Move the synchronous code out of the async block
 			image = Image.open(BytesIO(content))
 			try:
 				self.model.to(self.device)
@@ -73,9 +71,11 @@ class ModelRunner:
 		self.model_path: str = model_path
 		self.device: torch.device = torch.device('cuda')
 		self.tokenizer: GPT2Tokenizer = self.load_tokenizer(self.model_path)
-		self.detoxify: pipeline = pipeline("text-classification", model="unitary/toxic-bert", device=torch.device("cpu"))
+		self.detoxify: pipeline = pipeline("text-classification", model="unitary/toxic-bert",
+										   device=torch.device("cpu"))
 		self.caption_processor: CaptionProcessor = CaptionProcessor("cpu")
-		self.text_model: GPT2LMHeadModel = None
+		self.text_model: GPT2LMHeadModel = self.load_model(self.model_path)
+		self.text_model.to(self.device)
 		self.text_lock_path = "D:\\code\\repos\\reddit-bot-gpt2-xl\\locks\\text.lock"
 		self.image_lock_path = "D:\\code\\repos\\reddit-bot-gpt2-xl\\locks\\sd.lock"
 
@@ -132,13 +132,6 @@ class ModelRunner:
 
 	@torch.no_grad()
 	def run_generation(self, encoding) -> str:
-		if self.required_model_load:
-			self.text_model = self.load_model(self.model_path)
-			self.text_model.to(self.device)
-			self.required_model_load = False
-
-		while self.is_in_lock_state():
-			continue
 		try:
 			start_time = time.time()
 			self.create_lock()
@@ -267,37 +260,21 @@ class BotRunner:
 		self.model_runner = ModelRunner(model_path=os.environ.get("MODEL_PATH"))
 		self.bot_map: dict = self.read_bot_configuration()
 		self.next_hour_current_time = 0
-		self.reddit = asyncpraw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
-		self.task_queue = asyncio.Queue()
-		self.result_queue = asyncio.Queue()
-		self.gpu_monitor_task = asyncio.create_task(self.monitor_gpu_utilization())
-		self.gpu_utilization = None
+		self.reddit = praw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
+		self.task_queue = Queue()
+		self.result_queue = Queue()
 
-	async def monitor_gpu_utilization(self):
-		counter = 0
-		logger.info(":: Starting monitor_gpu_utilization")
-		while True:
-			if counter % 1000 == 0:
-				gpu = GPUtil.getGPUs()[0]
-				self.gpu_utilization = gpu.load * 100
-				self.queue_size = self.task_queue.qsize()
-				logger.info(f":: Queue count {self.task_queue.qsize()}, Utilization: {gpu.load * 100}%")
-				counter += 1
-			else:
-				counter += 1
-			await asyncio.sleep(1)
-
-	async def responding_background_process(self):
+	def responding_background_process(self):
 		retry_count = 0
 		max_retries = 3
 
 		logger.info(":: Starting responding_background_process")
 		while True:
 			if self.result_queue.empty():
-				await asyncio.sleep(.1)
+				time.sleep(1)
 				continue
 
-			input_data: dict = await self.result_queue.get()
+			input_data: dict = self.result_queue.get()
 			reply_id = input_data.get("reply_id")
 			new_reddit = None
 			try:
@@ -311,53 +288,48 @@ class BotRunner:
 					retry_count = 0
 					continue
 
-				new_reddit = asyncpraw.Reddit(site_name=reply_bot)
+				new_reddit = praw.Reddit(site_name=reply_bot)
 
 				if reply_type == 'submission':
-					submission = await new_reddit.submission(reply_id)
-					reply = await submission.reply(reply_text)
+					submission = new_reddit.submission(reply_id)
+					reply = submission.reply(reply_text)
 					logger.info(f":: {reply_bot} has replied to Submission: at https://www.reddit.com{reply.permalink}")
 					self.result_queue.task_done()
 					retry_count = 0
 
 				if reply_type == 'comment':
-					comment = await new_reddit.comment(reply_id)
-					reply = await comment.reply(reply_text)
+					comment = new_reddit.comment(reply_id)
+					reply = comment.reply(reply_text)
 					logger.info(f":: {reply_bot} has replied to Comment: at https://www.reddit.com{reply.permalink}")
 					self.result_queue.task_done()
 					retry_count = 0
 
-			except asyncpraw.exceptions.APIException as e:
+			except prawcore.PrawcoreException as e:
 				logger.error(f"APIException: {e}")
 				if retry_count < max_retries:
 					retry_count += 1
-					await asyncio.sleep(2 ** retry_count)
-					await self.result_queue.put(input_data)
+					time.sleep(2 ** retry_count)
+					self.result_queue.put(input_data)
 				else:
 					logger.error(f"Max retries reached for comment {reply_id}")
 
 			except Exception as e:
 				logger.error(f"An unexpected error occurred: {e}")
 
-			finally:
-				if new_reddit is not None:
-					await new_reddit.close()
-				await asyncio.sleep(1)
+	def task_queue_handler(self, data: dict):
+		self.task_queue.put(data)
 
-	async def task_queue_handler(self, data: dict):
-		await self.task_queue.put(data)
-
-	async def text_generation_background_task(self):
+	def text_generation_background_task(self):
 		retry_count = 0
 		max_retries = 3
 
 		logger.info(":: Starting text_generation_background_task")
 		while True:
 			if self.task_queue.empty():
-				await asyncio.sleep(1)
+				time.sleep(1)
 				continue
 
-			input_data: dict = await self.task_queue.get()
+			input_data: dict = self.task_queue.get()
 			input_string = input_data.get('text')
 			try:
 				text = self.model_runner.run(input_string)
@@ -371,7 +343,7 @@ class BotRunner:
 					reply_text = self.model_runner.clean_text(input_string=input_string, text=text)
 				input_data['text'] = reply_text
 
-				await self.result_queue.put(input_data)
+				self.result_queue.put(input_data)
 				self.task_queue.task_done()
 				retry_count = 0
 
@@ -384,35 +356,32 @@ class BotRunner:
 
 				if retry_count < max_retries:
 					retry_count += 1
-					await asyncio.sleep(2 ** retry_count)
-					await self.task_queue.put(input_data)
+					time.sleep(2 ** retry_count)
+					self.task_queue.put(input_data)
 				else:
 					logger.error(f"Max retries reached for input {input_string}")
 
-			await asyncio.sleep(1)
+			time.sleep(1)
 
-	async def get_value_by_key(self, key, filename='cache.json'):
-		existing_data = await self.load_dict_from_file(filename)
+	def get_value_by_key(self, key, filename='cache.json'):
+		existing_data = self.load_dict_from_file(filename)
 		return existing_data.get(key, None)
 
-	async def set_value_by_key(self, key, value, filename='cache.json'):
-		loop = asyncio.get_event_loop()
-		existing_data = await self.load_dict_from_file(filename)
+	def set_value_by_key(self, key, value, filename='cache.json'):
+		existing_data = self.load_dict_from_file(filename)
 		data = {key: value}
 		existing_data.update(data)
-		await loop.run_in_executor(None, json.dump, existing_data, open(filename, 'w'))
 
-	async def load_dict_from_file(self, filename='cache.json', max_retries=3, retry_delay=1):
-		loop = asyncio.get_event_loop()
+	def load_dict_from_file(self, filename='cache.json', max_retries=3, retry_delay=1):
 		for attempt in range(max_retries):
 			try:
 				with open(filename, 'r') as f:
-					return await loop.run_in_executor(None, json.load, f)
+					return json.load(f)
 			except FileNotFoundError:
 				return {}
 			except Exception as e:
 				logger.error(f"Failed to load JSON from {filename}, attempt {attempt + 1}: {e}")
-				await asyncio.sleep(retry_delay)  # Add a delay before retrying
+				time.sleep(retry_delay)
 		logger.error(f"Failed to load JSON from {filename} after {max_retries} attempts.")
 		return {}
 
@@ -424,17 +393,17 @@ class BotRunner:
 				bot_map[item['name']] = item['personality']
 		return bot_map
 
-	async def construct_context_string(self, comment: Comment) -> str:
+	def construct_context_string(self, comment: Comment) -> str:
 		things = []
 		current_comment = comment
 		counter = 0
 		try:
-			while not isinstance(current_comment, asyncpraw.models.Submission):
+			while not isinstance(current_comment, praw.models.Submission):
 				if counter == 12:
 					break
 				comment_key = str(current_comment.id) + "-" + 'text'
 
-				cached_thing = await self.get_value_by_key(comment_key)
+				cached_thing = self.get_value_by_key(comment_key)
 				if cached_thing is not None:
 					cached = {
 						'counter': counter,
@@ -442,29 +411,26 @@ class BotRunner:
 					}
 					things.append(cached)
 					counter += 1
-					current_comment = await current_comment.parent()
+					current_comment = current_comment.parent()
 					continue
 				else:
 					thing = {
 						"text": "", "counter": 0
 					}
-					await current_comment.load()
 					if thing is None:
-						current_comment = await current_comment.parent()
-						await asyncio.sleep(1)
+						current_comment = current_comment.parent()
+						time.sleep(1)
 						continue
 					thing['counter'] = counter
 					thing['text'] = current_comment.body
 					things.append(current_comment.body)
-					await self.set_value_by_key(comment_key, thing['text'])
+					self.set_value_by_key(comment_key, thing['text'])
 					counter += 1
-					current_comment = await current_comment.parent()
-					await asyncio.sleep(1)
+					current_comment = current_comment.parent()
+					time.sleep(1)
 					continue
-		except asyncprawcore.exceptions.RequestException as request_exception:
+		except prawcore.exceptions.RequestException as request_exception:
 			logger.exception("Request Error", request_exception)
-		except asyncio.exceptions.CancelledError as cancellation_error:
-			logger.exception("Task was cancelled, exiting.", cancellation_error)
 		except Exception as e:
 			logger.exception(f"General Exception In construct_context_string", e)
 
@@ -493,40 +459,32 @@ class BotRunner:
 			'subreddit': os.environ.get("SUBREDDIT_TO_MONITOR")
 		}
 
-	async def create_reddit_post(self, data: dict) -> None:
+	def create_reddit_post(self, data: dict) -> None:
 		bot = data.get("bot")
 		subreddit_name = data.get("subreddit")
-		new_reddit = asyncpraw.Reddit(site_name=bot)
+		new_reddit = praw.Reddit(site_name=bot)
 		create_image = random.choice([False, False])
 		try:
-			subreddit = await new_reddit.subreddit(subreddit_name)
-			try:
-				await subreddit.load()
-			except:
-				logger.error(f":: Subreddit {subreddit_name} failed to load, skipping.")
-				return
+			subreddit = new_reddit.subreddit(subreddit_name)
 			title = data.get("title")
 			text = data.get('text')
 			if create_image:
 				return
 			else:
-				result = await subreddit.submit(title, selftext=text)
-				await result.load()
+				result = subreddit.submit(title, selftext=text)
 				logger.info(f"{bot} has Created A Submission: at https://www.reddit.com{result.permalink}")
 		except Exception as e:
 			logger.error(e)
 			raise e
-		finally:
-			await new_reddit.close()
 
-	async def process_submission(self, submission):
+	def process_submission(self, submission):
 		if submission is None:
-			await asyncio.sleep(.01)
+			time.sleep(1)
 			return
 
 		if str(submission.url).endswith(('.png', '.jpg', '.jpeg')):
 			logger.debug(f":: Submission does not contain image URL: {submission.url}")
-			text = await self.model_runner.caption_processor.caption_image_from_url(submission.url)
+			text = self.model_runner.caption_processor.caption_image_from_url(submission.url)
 
 		else:
 			logger.debug(f":: Submission contains image URL: {submission.url}")
@@ -543,7 +501,7 @@ class BotRunner:
 
 			constructed_string = f"<|startoftext|><|subreddit|>{mapped_submission['subreddit']}<|title|>{mapped_submission['title']}<|text|>{mapped_submission['text']}<|context_level|>0<|comment|>"
 			bot_reply_key = f"{bot}_{submission.id}"
-			bot_reply_value = await self.get_value_by_key(bot_reply_key)
+			bot_reply_value = self.get_value_by_key(bot_reply_key)
 			if bot_reply_value:
 				continue
 
@@ -554,10 +512,10 @@ class BotRunner:
 				'reply_id': submission.id,
 				'type': 'submission'
 			}
-			await self.set_value_by_key(bot_reply_key, True)
-			await self.task_queue_handler(data)
+			self.set_value_by_key(bot_reply_key, True)
+			self.task_queue_handler(data)
 
-	async def process_comment(self, comment: Comment):
+	def process_comment(self, comment: Comment):
 		if comment is None:
 			return
 
@@ -566,7 +524,7 @@ class BotRunner:
 		filtered_bot = [x for x in bots if x.lower() != str(comment.author).lower()]
 		responding_bot = random.choice(filtered_bot)
 		personality = self.bot_map[responding_bot]
-		submission = await self.reddit.submission(submission_id)
+		submission =  self.reddit.submission(submission_id)
 		mapped_submission = {
 			"subreddit": 'r' + '/' + personality,
 			"title": submission.title,
@@ -575,11 +533,11 @@ class BotRunner:
 
 		if int(submission.num_comments) > int(os.environ.get('MAX_REPLIES')):
 			logger.debug(f":: Comment Has More Than 250 Replies, Skipping")
-			await self.set_value_by_key(comment.id, True)
+			self.set_value_by_key(comment.id, True)
 			return
 
 		constructed_string = f"<|startoftext|><|subreddit|>{mapped_submission['subreddit']}<|title|>{mapped_submission['title']}<|text|>{mapped_submission['text']}"
-		constructed_string += await self.construct_context_string(comment)
+		constructed_string += self.construct_context_string(comment)
 		data = {
 			'text': constructed_string,
 			'responding_bot': responding_bot,
@@ -587,58 +545,53 @@ class BotRunner:
 			'reply_id': comment.id,
 			'type': 'comment'
 		}
-		await self.task_queue_handler(data)
-		await self.set_value_by_key(comment.id, True)
+		self.task_queue_handler(data)
+		self.set_value_by_key(comment.id, True)
 
-	async def reply_to_comment(self, comment: Comment, responding_bot: str, reply_text: str):
-		new_reddit = asyncpraw.Reddit(site_name=responding_bot)
+	def reply_to_comment(self, comment: Comment, responding_bot: str, reply_text: str):
+		new_reddit = praw.Reddit(site_name=responding_bot)
 		try:
-			await comment.load()
-			comment = await new_reddit.comment(comment.id)
-			reply = await comment.reply(reply_text)
-			await new_reddit.close()
+			comment: Comment = new_reddit.comment(comment.id)
+			reply = comment.reply(reply_text)
 			logger.info(f":: {responding_bot} has replied to Comment: at https://www.reddit.com{reply.permalink}")
 		except Exception as e:
 			logger.error(e)
-		finally:
-			await new_reddit.close()
 
-	async def run_async(self):
-		asyncio.create_task(self.text_generation_background_task())
-		asyncio.create_task(self.responding_background_process())
+
+	def run(self):
+		responding_thread = threading.Thread(target=self.responding_background_process, name="RespondingThread")
+		text_generation_background_thread = threading.Thread(target=self.text_generation_background_task, name="TextGenerationThread")
+
+		responding_thread.start()
+		text_generation_background_thread.start()
+
 		sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
-		subreddit = await self.reddit.subreddit(sub_names)
-		self.next_hour_current_time = await self.get_value_by_key('next_time_to_post')
-		if self.next_hour_current_time is None:
-			self.next_hour_current_time = 0
+		subreddit = self.reddit.subreddit(sub_names)
+
 		count = 0
 		logger.info(":: Starting Warm Up For Model Text Generation")
 		self.model_runner.run("<|startoftext|><|subreddit|>r/test<|title|>I Need to test the love inside me<|text|>Please Come And Help Me<|context_level|>0<|comment|>")
+		logger.info(f":: Starting Primary Loop, Iteration: {count}")
 		while True:
 			try:
-				logger.info(f":: Starting Primary Loop, Iteration: {count}")
-				async for item in subreddit.stream.comments():
+				for item in subreddit.stream.comments(pause_after=-1, skip_existing=True):
 					logger.debug(f":: Iteration: {count}, Item: {item}")
 					if datetime.timestamp(datetime.now()) > self.next_hour_current_time:
 						self.next_hour_current_time = datetime.timestamp(datetime.now() + timedelta(hours=3))
-						await self.set_value_by_key('next_time_to_post', self.next_hour_current_time)
+						self.set_value_by_key('next_time_to_post', self.next_hour_current_time)
 						data = self.create_post_string()
-						await self.create_reddit_post(data)
+						self.create_reddit_post(data)
 					else:
 						logger.debug(f":: Next Post In {self.next_hour_current_time - datetime.timestamp(datetime.now())} Seconds")
 
 					if count % 10 == 0:
 						logger.debug(":: Checking For Submissions")
-						async for x in subreddit.new(limit=5):
+						for x in subreddit.new(limit=5):
 							if isinstance(x, Submission):
-								await asyncio.sleep(3)
+								time.sleep(1)
 								if x is None:
 									continue
-								try:
-									await x.load()
-								except:
-									continue
-								await self.process_submission(submission=x)
+								self.process_submission(submission=x)
 								continue
 
 					if item is None:
@@ -646,21 +599,21 @@ class BotRunner:
 						continue
 
 					comment_key = f"{item.id}-comment"
-					comment_seen = await self.get_value_by_key(comment_key)
+					comment_seen = self.get_value_by_key(comment_key)
 					if comment_seen:
 						count += 1
 						continue
 
 					if isinstance(item, Comment):
-						await self.process_comment(comment=item)
-						await self.set_value_by_key(comment_key, True)
+						self.process_comment(comment=item)
+						self.set_value_by_key(comment_key, True)
 						count += 1
+
 			except Exception as e:
 				if e.args[0] == "I blew the fuck up exception":
 					logger.info(e)
 					raise e
 				else:
 					logger.info("An error has occurred during the primary loop", e)
-					await asyncio.sleep(1)
+					time.sleep(1)
 					count += 1
-					continue

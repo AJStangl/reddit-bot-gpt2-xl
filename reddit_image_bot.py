@@ -1,4 +1,3 @@
-import asyncio
 import base64
 import hashlib
 import io
@@ -7,14 +6,13 @@ import logging
 import os
 import os.path
 import random
-
-import asyncpraw
-import asyncpraw.models
+import time
+from praw.models import Comment, Submission
 import numpy as np
 import pandas
 import requests
 from PIL import Image
-from asyncpraw import Reddit
+from praw import Reddit
 from azure.core.credentials import AzureNamedKeyCredential
 from azure.data.tables import TableServiceClient, TableClient
 from azure.storage.blob import BlobServiceClient
@@ -25,7 +23,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 load_dotenv()
 
 logging.getLogger("azure").setLevel(logging.ERROR)
-logging.basicConfig(level=logging.DEBUG, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
@@ -91,7 +89,7 @@ class RedditImageBot:
 			table_client.close()
 			service_client.close()
 
-	async def create_submission(self,
+	def create_submission(self,
 						  title: str,
 						  image_output: str,
 						  model_name: str,
@@ -106,11 +104,11 @@ class RedditImageBot:
 		try:
 			target_sub = "CoopAndPabloArtHouse"
 
-			sub = await self.reddit.subreddit(target_sub)
+			sub = self.reddit.subreddit(target_sub)
 
 			latest_submission = sub.new(limit=1)
 
-			latest_submission = await latest_submission.__anext__()
+			latest_submission = latest_submission.__next__()
 
 			self.last_submission_id = latest_submission.id
 
@@ -118,12 +116,12 @@ class RedditImageBot:
 
 			flair_id = self.flair_map.get(model_name)
 
-			await sub.submit_image(title=f"{title}", image_path=image_output, nsfw=True, timeout=60, without_websockets=True, flair_id=flair_id)
+			sub.submit_image(title=f"{title}", image_path=image_output, nsfw=True, timeout=60, without_websockets=True, flair_id=flair_id)
 
 			while True:
-				submission: asyncpraw.models.Submission = await sub.new(limit=1).__anext__()
+				submission: Submission = sub.new(limit=1).__next__()
 				if submission.id == self.last_submission_id:
-					await asyncio.sleep(5)
+					time.sleep(5)
 					continue
 				else:
 					self.last_submission_id = submission.id
@@ -139,7 +137,7 @@ class RedditImageBot:
 
 			body = self.get_markdown_comment(prompt, model_name, guidance, num_steps, attention_type, info_string)
 
-			await submission.reply(body=body[0:9999])
+			submission.reply(body=body[0:9999])
 
 			self.counter += 1
 
@@ -152,9 +150,6 @@ class RedditImageBot:
 		except Exception as e:
 			logger.exception(e)
 			return False
-		finally:
-			await self.reddit.close()
-			self.reddit = None
 
 
 class DataMapper:
@@ -325,27 +320,28 @@ class ImageRunner:
 
 	def create_lock(self):
 		try:
+			logger.info("Creating lock")
 			with open(self.image_lock_path, "wb") as handle:
 				handle.write(b"")
 		except Exception as e:
-			logging.error(f"An error occurred while creating temp lock: {e}")
+			logger.error(f"An error occurred while creating temp lock: {e}")
 
 	def clear_lock(self):
 		try:
+			logger.info("Clearing lock")
 			if os.path.exists(self.image_lock_path):
 				os.remove(self.image_lock_path)
 			else:
-				logging.warning(f"Lock file {self.image_lock_path} does not exist.")
+				logger.warning(f"Lock file {self.image_lock_path} does not exist.")
 		except Exception as e:
-			logging.error(f"An error occurred while deleting text lock: {e}")
-		# Optionally, re-raise the exception to signal the failure
-		# raise
+			logger.error(f"An error occurred while deleting text lock: {e}")
 
-	async def run_async(self):
+	def run(self):
+		logger.info(":: Starting Image Worker")
 		while True:
 			try:
 				while os.path.exists(self.text_lock_path):
-					await asyncio.sleep(.1)
+					time.sleep(.1)
 					continue
 				logger.info(":: Text lock cleared, generating image...")
 				denoising_strength = round(random.uniform(0.05, 0.2), 2)
@@ -412,13 +408,12 @@ upscaler: {upscaler}
 					denoising_strength=denoising_strength,
 					sampler_name="DDIM",
 					upscaler=upscaler)
-
 				self.clear_lock()
 				logger.info(":: Image Complete, removing lock...")
 
 				try:
 					logger.debug(":: Image Generated, submitting to Reddit...")
-					await self.reddit_handler.create_submission(
+					self.reddit_handler.create_submission(
 						title=title,
 						image_output=image_path,
 						model_name=subject,
@@ -433,4 +428,4 @@ upscaler: {upscaler}
 			except Exception as e:
 				logger.exception(e)
 			finally:
-				await asyncio.sleep(10)
+				time.sleep(10)

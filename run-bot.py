@@ -1,3 +1,5 @@
+import os
+import time
 from threading import Thread
 import signal
 from reddit_image_bot import ImageRunner
@@ -5,49 +7,37 @@ from reddit_run_bot import BotRunner
 import warnings
 import logging
 from dotenv import load_dotenv
-import asyncio
 
 warnings.filterwarnings("ignore")
 load_dotenv()
 
 
 def signal_handler(signum, frame):
-	# Perform any necessary cleanup here
 	logger.info("Caught signal, stopping threads.")
-	exit(0)
-
-
-def run_in_thread(coroutine):
-	loop = asyncio.new_event_loop()
-	asyncio.set_event_loop(loop)
-	loop.run_until_complete(coroutine)
-
-
-async def main():
-	try:
-		image_runner: ImageRunner = ImageRunner()
-		bot_runner: BotRunner = BotRunner()
-
-		thread_image_worker = Thread(target=run_in_thread, args=(image_runner.run_async(),), daemon=True,
-									 name="image-worker")
-		thread_text_worker = Thread(target=run_in_thread, args=(bot_runner.run_async(),), daemon=True,
-									name="text-worker")
-
-		thread_image_worker.start()
-		thread_text_worker.start()
-
-		signal.signal(signal.SIGINT, signal_handler)
-		signal.signal(signal.SIGTERM, signal_handler)
-
-		while True:
-			await asyncio.sleep(1)  # Sleep indefinitely until interrupted
-
-	except Exception as e:
-		logger.error("An error occurred", exc_info=True)
-		exit(1)
+	os.remove("locks")
+	exit(1)
 
 
 if __name__ == '__main__':
-	logging.basicConfig(level=logging.DEBUG, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
+	logging.basicConfig(level=logging.INFO, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
+	if os.path.exists("D:\\code\\repos\\reddit-bot-gpt2-xl\\locks"):
+		for item in os.listdir("D:\\code\\repos\\reddit-bot-gpt2-xl\\locks"):
+			item_path = os.path.join("D:\\code\\repos\\reddit-bot-gpt2-xl\\locks", item)
+			os.remove(item_path)
+
+	os.makedirs("D:\\code\\repos\\reddit-bot-gpt2-xl\\locks", exist_ok=True)
 	logger = logging.getLogger(__name__)
-	asyncio.run(main())
+	image_runner: ImageRunner = ImageRunner()
+	bot_runner: BotRunner = BotRunner()
+
+	thread_image_worker = Thread(target=image_runner.run, args=(), daemon=True, name="image-worker")
+	thread_text_worker = Thread(target=bot_runner.run, args=(), daemon=True, name="text-worker")
+
+	thread_image_worker.start()
+	thread_text_worker.start()
+
+	signal.signal(signal.SIGINT, signal_handler)
+	signal.signal(signal.SIGTERM, signal_handler)
+
+	while True:
+		time.sleep(1)
