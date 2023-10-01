@@ -185,3 +185,6 @@ raw_training_1694874754.*.txt
 /cache/submission.dir
 /raw_training_1696085973.897645.txt
 /sd.lock
+/data/
+/locks/
+/output/
