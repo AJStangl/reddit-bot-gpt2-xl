@@ -4,12 +4,11 @@ import logging
 import os
 import random
 import re
-import sys
 import time
 from datetime import datetime, timedelta
 from io import BytesIO
 from typing import Optional
-
+import aiofiles
 import aiohttp
 import asyncpraw
 import asyncprawcore
@@ -36,11 +35,10 @@ logger = logging.getLogger(__name__)
 
 class CaptionProcessor(object):
 	def __init__(self, device_name: str = "cuda"):
-		self.processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-large")
 		self.device_name = device_name
 		self.device = torch.device(self.device_name)
-		self.model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large").to(
-			self.device)
+		self.processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-large")
+		self.model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large")
 
 	async def caption_image_from_url(self, image_url: str) -> str:
 		result = ""
@@ -54,6 +52,7 @@ class CaptionProcessor(object):
 			# Move the synchronous code out of the async block
 			image = Image.open(BytesIO(content))
 			try:
+				self.model.to(self.device)
 				inputs = self.processor(images=image, return_tensors="pt").to(self.device)
 				out = self.model.generate(**inputs, max_new_tokens=77, num_return_sequences=1, do_sample=True)
 				result = self.processor.decode(out[0], skip_special_tokens=True)
@@ -134,11 +133,11 @@ class ModelRunner:
 		self.required_model_load = True
 		self.model_path: str = model_path
 		self.device: torch.device = torch.device('cuda')
-		self.tokenizer: Optional[GPT2Tokenizer] = self.load_tokenizer(self.model_path)
-		self.text_model: Optional[GPT2LMHeadModel] = None
-		self.detoxify: Optional[pipeline] = self.load_tox()
-		self.caption_processor: Optional[CaptionProcessor] = self.load_caption_processor()
-		self.image_generator: Optional[ImageGenerator] = self.load_image_generation()
+		self.tokenizer: GPT2Tokenizer = self.load_tokenizer(self.model_path)
+		self.detoxify: pipeline = self.load_tox()
+		self.caption_processor: CaptionProcessor = self.load_caption_processor()
+		self.image_generator: ImageGenerator = self.load_image_generation()
+		self.text_model: GPT2LMHeadModel = None
 
 
 	def load_image_generation(self):
@@ -211,7 +210,7 @@ class ModelRunner:
 				'num_return_sequences': 1
 			}
 			temp = ""
-			logging.getLogger("transformers").setLevel(logging.FATAL)
+			# logging.getLogger("transformers").setLevel(logging.FATAL)
 			for i, _ in enumerate(self.text_model.generate(**args)):
 				generated_texts = self.tokenizer.decode(_, skip_special_tokens=False, clean_up_tokenization_spaces=True)
 				generated_texts = generated_texts.split("<|startoftext|>")
@@ -228,7 +227,7 @@ class ModelRunner:
 		except Exception as e:
 			logger.info(e)
 			exit(1)
-			raise Exception("I blew the fuck up exception", e)
+			# raise Exception("I blew the fuck up exception", e)
 
 
 	def clean_text(self, text, input_string) -> Optional[str]:
@@ -315,19 +314,24 @@ class Bot(object):
 		self.result_queue = asyncio.Queue()
 		self.gpu_monitor_task = asyncio.create_task(self.monitor_gpu_utilization())
 		self.gpu_utilization = None
-		# self.pause_event = asyncio.Event()
-		# self.pause_event.set()
+
+	# async def background_task(self):
+	# 	while True:
+	# 		try:
+	# 			if datetime.timestamp(datetime.now()) > self.next_hour_current_time:
+	# 				next_period = datetime.timestamp(datetime.now() + timedelta(hours=3))
+	# 				await self.set_value_by_key('next_time_to_post', next_period)
+	# 				self.next_hour_current_time = next_period
+	# 				await self.create_reddit_post()
+	# 			await asyncio.sleep(1)
+	# 		except Exception as e:
+	# 			logger.error(e)
+	# 			await asyncio.sleep(1)
 
 	async def monitor_gpu_utilization(self):
 		counter = 0
 		logger.info(":: Starting GPU Monitor")
 		while True:
-			if self.queue_size > 10:
-				logger.debug(":: Queue size is greater than 10, pausing queue.")
-				# self.pause_event.set()
-			elif self.queue_size <= 1:
-				logger.debug(":: Queue size is less than 1, resuming queue.")
-				# self.pause_event.clear()
 			if counter % 1000 == 0:
 				gpu = GPUtil.getGPUs()[0]
 				self.gpu_utilization = gpu.load * 100
@@ -469,12 +473,11 @@ class Bot(object):
 		logger.error(f"Failed to load JSON from {filename} after {max_retries} attempts.")
 		return {}  # Return an empty dict as a fallback
 
-	def read_bot_configuration(self) -> dict:
-		bot_map = {}
-		with open(os.environ.get("CONFIG_PATH"), 'r') as f:
-			config = json.load(f)
-			for item in config:
-				bot_map[item['name']] = item['personality']
+	def read_bot_configuration(self) -> dict: 
+		bot_map = {} 
+		with open(os.environ.get("CONFIG_PATH"), 'r') as f: 
+			config = json.load(f) 
+			for item in config: bot_map[item['name']] = item['personality']
 		return bot_map
 
 	async def construct_context_string(self, comment: Comment) -> str:
@@ -532,7 +535,7 @@ class Bot(object):
 	async def create_post_string(self) -> dict:
 		chosen_bot_key = random.choice(list(self.bot_map.keys()))
 		bot_config = self.bot_map[chosen_bot_key]
-		constructed_string = f"<|startoftext|><|subreddit|>r/{bot_config}"  # make configurable
+		constructed_string = f"<|startoftext|><|subreddit|>r/{bot_config}"
 		result = await self.model_runner.run_async(constructed_string)
 
 		pattern = re.compile(r'<\|([a-zA-Z0-9_]+)\|>(.*?)(?=<\|[a-zA-Z0-9_]+\|>|$)', re.DOTALL)
@@ -666,23 +669,27 @@ class Bot(object):
 			self.next_hour_current_time = 0
 		count = 0
 		logging.info(":: Starting Warm Up For Model Text Generation")
-		await self.model_runner.run_async("<|startoftext|>")
+		await self.model_runner.run_async("<|startoftext|><|subreddit|>r/test<|title|>I Need to test the love inside me<|text|>Please Come And Help Me<|context_level|>0<|comment|>")
 		while True:
 			try:
-				# async for item in subreddit.stream.comments(skip_existing=True, pause_after=-1):
 				async for item in subreddit.stream.comments():
+					while os.path.exists("D:\\code\\repos\\reddit-bot-gpt2-xl\\sd.lock"):
+						await asyncio.sleep(1)
+						continue
 					if datetime.timestamp(datetime.now()) > self.next_hour_current_time:
-						await self.set_value_by_key('next_time_to_post', datetime.timestamp(datetime.now() + timedelta(hours=3)))
+						self.next_hour_current_time = datetime.timestamp(datetime.now() + timedelta(hours=3))
+						await self.set_value_by_key('next_time_to_post', self.next_hour_current_time)
 						await self.create_reddit_post()
 					else:
-						logger.debug(
-							f":: Next Post In {self.next_hour_current_time - datetime.timestamp(datetime.now())} Seconds")
+						logger.debug(f":: Next Post In {self.next_hour_current_time - datetime.timestamp(datetime.now())} Seconds")
 
 					if count % 10 == 0:
 						logger.debug(":: Checking For Submissions")
 						async for x in subreddit.new(limit=5):
 							if isinstance(x, Submission):
 								await asyncio.sleep(1)
+								if x is None:
+									continue
 								await x.load()
 								await self.process_submission(submission=x)
 								continue
@@ -691,7 +698,6 @@ class Bot(object):
 						count += 1
 						continue
 
-					# await self.pause_event.wait()
 					comment_key = f"{item.id}-comment"
 					comment_seen = await self.get_value_by_key(comment_key)
 					if comment_seen:
@@ -711,7 +717,6 @@ class Bot(object):
 					await asyncio.sleep(1)
 					count += 1
 					continue
-
 
 async def main():
 	bot = Bot()
