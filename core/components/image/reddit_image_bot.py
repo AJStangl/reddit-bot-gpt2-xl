@@ -7,7 +7,7 @@ import os
 import os.path
 import random
 import time
-from praw.models import Comment, Submission
+from praw.models import Submission
 import numpy as np
 import pandas
 import requests
@@ -172,8 +172,9 @@ class DataMapper:
 	def get_best_caption(self) -> dict:
 		try:
 			# Get a random lora without "step" in the name
-			random_lora = random.choice([item for item in self.lora_api_response if "step" not in item['name']])
+			random_lora = random.choice([item for item in self.lora_api_response]) # if "step" not in item['name']])
 			random_lora_name = random_lora['alias']
+			random_lora_model = random_lora['name']
 
 			# Get random lora data
 			random_lora_data = random.choice(self.caption_lookup[random_lora_name])
@@ -208,14 +209,14 @@ class DataMapper:
 
 			negative_prompt_string = ", ".join(negative_prompt).strip()
 
-			best_caption += f" <lora:{random_lora_name}:1>"
+			best_caption += f" <lora:{random_lora_model}:1>"
 			masked_title = self.mask_social_text(title)
 			result = {
 				'title': masked_title,
 				'prompt': best_caption,
 				'subject': random_lora_name,
 				'negative_prompt': negative_prompt_string.strip(),
-				'lora': random_lora_name
+				'lora': random_lora_model
 			}
 			return result
 

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from io import BytesIO
 from queue import Queue
 from typing import Optional
-
+import shelve
 import praw
 import prawcore
 import requests
@@ -21,7 +21,7 @@ from praw.models import Comment, Submission
 from transformers import GPT2Tokenizer, GPT2LMHeadModel, BlipProcessor, BlipForConditionalGeneration
 from transformers import logging as transformers_logging
 from transformers import pipeline
-
+import sys
 warnings.filterwarnings("ignore")
 transformers_logging.set_verbosity(transformers_logging.FATAL)
 
@@ -29,6 +29,8 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+exception_occurred = False
 
 
 class CaptionProcessor:
@@ -136,6 +138,7 @@ class BotComputationalHandler:
 	@torch.no_grad()
 	def run_generation(self, encoding) -> str:
 		try:
+			global exception_occurred
 			start_time = time.time()
 			self.create_lock()
 			inputs = encoding['input_ids']
@@ -187,10 +190,10 @@ Completion: {completion}
 """
 			logger.info(info_string)
 			return completion
-
 		except Exception as e:
 			logger.info(e)
-			exit(1)
+			exception_occurred = True
+			sys.exit(1)
 		finally:
 			self.clear_lock()
 			self.generation_count += 1
@@ -273,7 +276,11 @@ class BotRunner:
 		self.queue_size = 0
 		self.model_runner = BotComputationalHandler(model_path=os.environ.get("MODEL_PATH"))
 		self.bot_map: dict = self.read_bot_configuration()
-		self.next_hour_current_time = 0
+		self.personality_list = self.read_topics_file()
+		self.next_hour_current_time = self.get_value_by_key("next_time_to_post")
+		if self.next_hour_current_time is None:
+			self.next_hour_current_time = datetime.timestamp(datetime.now() + timedelta(hours=3))
+			self.set_value_by_key("next_time_to_post", self.next_hour_current_time)
 		self.reddit = praw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
 		self.task_queue = Queue()
 		self.result_queue = Queue()
@@ -373,8 +380,13 @@ class BotRunner:
 					self.task_queue.put(input_data)
 				else:
 					logger.error(f"Max retries reached for input {input_string}")
-
 			time.sleep(1)
+
+	def read_topics_file(self):
+		with open(os.environ.get("TOPICS_PATH"), 'r') as f:
+			content = f.read()
+			lines = content.split('\n')
+			return [item for item in lines if item != ""]
 
 	def get_value_by_key(self, key, filename=os.environ.get("CACHE_PATH")):
 		existing_data = self.load_dict_from_file(filename)
@@ -453,7 +465,8 @@ class BotRunner:
 	def create_post_string(self) -> dict:
 		chosen_bot_key = random.choice(list(self.bot_map.keys()))
 		bot_config = self.bot_map[chosen_bot_key]
-		constructed_string = f"<|startoftext|><|subreddit|>r/{bot_config}"
+		topic = random.choice(self.read_topics_file())
+		constructed_string = f"<|startoftext|><|subreddit|>r/{topic}"
 		result = self.model_runner.run(constructed_string)
 
 		pattern = re.compile(r'<\|([a-zA-Z0-9_]+)\|>(.*?)(?=<\|[a-zA-Z0-9_]+\|>|$)', re.DOTALL)
@@ -501,6 +514,7 @@ class BotRunner:
 			if str(submission.author).lower() == bot.lower():
 				continue
 			personality = self.bot_map[bot]
+			personality = random.choice(self.personality_list)
 			mapped_submission = {
 				"subreddit": 'r/' + personality,
 				"title": submission.title,
@@ -574,8 +588,7 @@ class BotRunner:
 				self.create_reddit_post(data)
 			else:
 				logger.debug(f":: Next Post In {self.next_hour_current_time - datetime.timestamp(datetime.now())} Seconds")
-				time.sleep(10)
-
+				time.sleep(5)
 
 	def comment_stream_task(self):
 		logger.info(":: Starting comment_stream_task")
@@ -585,13 +598,14 @@ class BotRunner:
 			try:
 				for comment in subreddit.stream.comments(pause_after=-1, skip_existing=True):
 					if comment is None:
-						time.sleep(1)
+						time.sleep(5)
 						continue
 
 					if isinstance(comment, Comment):
 						comment_key = f"{comment.id}-comment"
 						comment_seen = self.get_value_by_key(comment_key)
 						if comment_seen:
+							time.sleep(5)
 							continue
 
 						self.process_comment(comment=comment)
@@ -599,6 +613,7 @@ class BotRunner:
 
 			except Exception as e:
 				logger.exception(e)
+				time.sleep(5)
 				continue
 
 	def submission_stream_task(self):
@@ -610,15 +625,17 @@ class BotRunner:
 				for submission in subreddit.stream.submissions(pause_after=-1, skip_existing=True):
 					if isinstance(submission, Submission):
 						if submission is None:
+							time.sleep(10)
 							continue
 						else:
 							self.process_submission(submission=submission)
 			except Exception as e:
 				logger.exception(e)
+				time.sleep(5)
 				continue
 
 	def run(self):
-
+		global exception_occurred
 		text_reply_thread = threading.Thread(target=self.responding_background_process, name="reply-thread")
 		text_reply_thread.start()
 
@@ -634,6 +651,9 @@ class BotRunner:
 		create_submission_thread = threading.Thread(target=self.create_submission_task, name="create-submission-thread")
 		create_submission_thread.start()
 
-		while True:
+		while True:  # Inner loop to check for exceptions
+			if exception_occurred:
+				logger.critical("Critical exception from `run` method. Exiting program.")
+				exception_occurred = False
+				break
 			time.sleep(1)
-

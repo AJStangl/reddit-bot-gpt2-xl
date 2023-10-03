@@ -3,7 +3,7 @@ cd D:\code\repos\reddit-bot-gpt2-xl
 
 while ($true) {
     # Run the Python script
-    python reddit-run-bot.py
+    python run-bot.py --mode=text
 
     # Check the exit code of the Python script
     if ($LASTEXITCODE -eq 1) {
