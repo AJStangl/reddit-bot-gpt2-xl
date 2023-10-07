@@ -34,7 +34,7 @@ class CaptionProcessor(object):
 		self.device = torch.device(self.device_name)
 		self.model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large").to(self.device)
 
-	async def caption_image_from_url(self, image_url: str) -> AsyncGenerator:
+	async def caption_image_from_url_local(self, image_url: str) -> AsyncGenerator:
 		try:
 			async with aiohttp.ClientSession() as session:
 				async with session.get(image_url) as response:
@@ -166,7 +166,7 @@ async def collect_submission_details(submission, processor) -> dict:
 		has_image = url.endswith((".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp", ".svg"))
 		text = ""
 		if has_image:
-			async for item in processor.caption_image_from_url(url):
+			async for item in processor.caption_image_from_url_local(url):
 				if item is None:
 					continue
 				else:
@@ -219,7 +219,7 @@ async def main():
 							basic_submission["comments"] = comment_tree
 						except asyncprawcore.exceptions.TooManyRequests as e:
 							logger.error(e)
-							time.sleep(60)
+							time.sleep(10)
 							comment_tree = await get_all_comments(submission)
 							basic_submission["comments"] = comment_tree
 							continue

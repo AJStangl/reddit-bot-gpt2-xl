@@ -1,3 +1,6 @@
+import base64
+import hashlib
+import io
 import json
 import logging
 import os
@@ -22,6 +25,9 @@ from transformers import GPT2Tokenizer, GPT2LMHeadModel, BlipProcessor, BlipForC
 from transformers import logging as transformers_logging
 from transformers import pipeline
 import sys
+
+import core.components
+
 warnings.filterwarnings("ignore")
 transformers_logging.set_verbosity(transformers_logging.FATAL)
 
@@ -420,7 +426,7 @@ class BotRunner:
 		counter = 0
 		try:
 			while not isinstance(current_comment, praw.models.Submission):
-				if counter == 12:
+				if counter == 9:
 					break
 				comment_key = str(current_comment.id) + "-" + 'text'
 				cached_thing = self.get_value_by_key(comment_key)
@@ -468,6 +474,7 @@ class BotRunner:
 		topic = random.choice(self.read_topics_file())
 		constructed_string = f"<|startoftext|><|subreddit|>r/{topic}"
 		result = self.model_runner.run(constructed_string)
+		result = result.replace(constructed_string, "")
 
 		pattern = re.compile(r'<\|([a-zA-Z0-9_]+)\|>(.*?)(?=<\|[a-zA-Z0-9_]+\|>|$)', re.DOTALL)
 		matches = pattern.findall(result)
@@ -475,33 +482,59 @@ class BotRunner:
 		return {
 			'title': result_dict.get('title'),
 			'text': result_dict.get('text'),
-			'image_path': None,
+			'image': result_dict.get('image'),
 			'bot': chosen_bot_key,
 			'subreddit': os.environ.get("SUBREDDIT_TO_MONITOR")
 		}
+
+	def get_image(self, caption: str):
+		from core.components import data as payload
+		data = payload(caption)
+		try:
+			_response = requests.post("http://127.0.0.1:7860/sdapi/v1/txt2img",
+									  headers={'accept': 'application/json', 'Content-Type': 'application/json'},
+									  json=data)
+			r = _response.json()
+			for i in r['images']:
+				image = Image.open(io.BytesIO(base64.b64decode(i.split(",", 1)[0])))
+				image_hash = hashlib.md5(image.tobytes()).hexdigest()
+				image.save(f'output\\{image_hash}.png')
+				return f'output\\{image_hash}.png'
+		except Exception as e:
+			print(e)
+			return None
 
 	def create_reddit_post(self, data: dict) -> None:
 		bot = data.get("bot")
 		subreddit_name = data.get("subreddit")
 		new_reddit = praw.Reddit(site_name=bot)
-		create_image = random.choice([False, False])
 		try:
 			subreddit = new_reddit.subreddit(subreddit_name)
 			title = data.get("title")
 			text = data.get('text')
-			if create_image:
-				return
+			image = data.get('image')
+			if text is None and image is None:
+				return None
+			if image:
+				self.get_image(image)
+				subreddit.submit_image(title, image_path=image, without_websockets=True)
+				logger.info(f"{bot} has Created an Image Post")
 			else:
 				result = subreddit.submit(title, selftext=text)
 				logger.info(f"{bot} has Created A Submission: at https://www.reddit.com{result.permalink}")
 		except Exception as e:
 			logger.error(e)
-			raise e
 
 	def process_submission(self, submission):
 		if submission is None:
 			time.sleep(1)
 			return
+
+		bots_to_reply = list(self.bot_map.keys())
+		for bot in self.bot_map.keys():
+			bot_reply_key = f"{bot}-{submission.id}"
+			if self.get_value_by_key(bot_reply_key):
+				bots_to_reply.pop(bot_reply_key)
 
 		if str(submission.url).endswith(('.png', '.jpg', '.jpeg')):
 			logger.debug(f":: Submission contains image URL: {submission.url}")
@@ -510,7 +543,7 @@ class BotRunner:
 		else:
 			logger.debug(f":: Submission contains image URL: {submission.url}")
 			text = submission.selftext
-		for bot in self.bot_map.keys():
+		for bot in bots_to_reply:
 			if str(submission.author).lower() == bot.lower():
 				continue
 			personality = self.bot_map[bot]
@@ -545,7 +578,8 @@ class BotRunner:
 		filtered_bot = [x for x in bots if x.lower() != str(comment.author).lower()]
 		responding_bot = random.choice(filtered_bot)
 		personality = self.bot_map[responding_bot]
-		submission =  self.reddit.submission(submission_id)
+		personality = random.choice(self.personality_list)
+		submission = self.reddit.submission(submission_id)
 		mapped_submission = {
 			"subreddit": 'r' + '/' + personality,
 			"title": submission.title,
@@ -592,11 +626,13 @@ class BotRunner:
 
 	def comment_stream_task(self):
 		logger.info(":: Starting comment_stream_task")
-		sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
-		subreddit = self.reddit.subreddit(sub_names)
 		while True:
 			try:
+				sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
+				subreddit = self.reddit.subreddit(sub_names)
 				for comment in subreddit.stream.comments(pause_after=-1, skip_existing=True):
+					if random.randint(0, 100) < int(os.environ.get("COMMENT_PROBABILITY")):
+						continue
 					if comment is None:
 						time.sleep(5)
 						continue
@@ -607,14 +643,16 @@ class BotRunner:
 						if comment_seen:
 							time.sleep(5)
 							continue
-
-						self.process_comment(comment=comment)
-						self.set_value_by_key(comment_key, True)
+						else:
+							self.process_comment(comment=comment)
+							self.set_value_by_key(comment_key, True)
 
 			except Exception as e:
 				logger.exception(e)
 				time.sleep(5)
 				continue
+			finally:
+				time.sleep(5)
 
 	def submission_stream_task(self):
 		logger.info(":: Starting submission_stream_task")
@@ -625,35 +663,38 @@ class BotRunner:
 				for submission in subreddit.stream.submissions(pause_after=-1, skip_existing=True):
 					if isinstance(submission, Submission):
 						if submission is None:
-							time.sleep(10)
+							time.sleep(5)
 							continue
 						else:
 							self.process_submission(submission=submission)
+							time.sleep(5)
 			except Exception as e:
 				logger.exception(e)
 				time.sleep(5)
 				continue
+			finally:
+				time.sleep(5)
 
 	def run(self):
 		global exception_occurred
-		text_reply_thread = threading.Thread(target=self.responding_background_process, name="reply-thread")
+		text_reply_thread = threading.Thread(target=self.responding_background_process, name="reply-thread", daemon=True)
 		text_reply_thread.start()
 
-		text_generation_thread = threading.Thread(target=self.text_generation_background_task, name="text-generation-thread")
+		text_generation_thread = threading.Thread(target=self.text_generation_background_task, name="text-generation-thread", daemon=True)
 		text_generation_thread.start()
 
-		comment_stream_thread = threading.Thread(target=self.comment_stream_task, name="comment-stream-thread")
+		comment_stream_thread = threading.Thread(target=self.comment_stream_task, name="comment-stream-thread", daemon=True)
 		comment_stream_thread.start()
 
-		submission_stream_thread = threading.Thread(target=self.submission_stream_task, name="submission-stream-thread")
+		submission_stream_thread = threading.Thread(target=self.submission_stream_task, name="submission-stream-thread", daemon=True)
 		submission_stream_thread.start()
 
-		create_submission_thread = threading.Thread(target=self.create_submission_task, name="create-submission-thread")
+		create_submission_thread = threading.Thread(target=self.create_submission_task, name="create-submission-thread", daemon=True)
 		create_submission_thread.start()
 
 		while True:  # Inner loop to check for exceptions
 			if exception_occurred:
 				logger.critical("Critical exception from `run` method. Exiting program.")
 				exception_occurred = False
-				break
+				sys.exit(1)
 			time.sleep(1)
