@@ -426,8 +426,6 @@ class BotRunner:
 		counter = 0
 		try:
 			while not isinstance(current_comment, praw.models.Submission):
-				if counter == 9:
-					break
 				comment_key = str(current_comment.id) + "-" + 'text'
 				cached_thing = self.get_value_by_key(comment_key)
 				if cached_thing is not None:
@@ -444,21 +442,26 @@ class BotRunner:
 						"text": "", "counter": 0
 					}
 					if thing is None:
-						current_comment = current_comment.parent()
 						time.sleep(1)
+						current_comment = current_comment.parent()
 						continue
 					thing['counter'] = counter
 					thing['text'] = current_comment.body
 					things.append(current_comment.body)
 					self.set_value_by_key(comment_key, thing['text'])
 					counter += 1
-					current_comment = current_comment.parent()
-					time.sleep(1)
-					continue
+					if counter == 8:
+						break
+					else:
+						time.sleep(1)
+						current_comment = current_comment.parent()
+						continue
 		except prawcore.exceptions.RequestException as request_exception:
 			logger.exception("Request Error", request_exception)
+			time.sleep(5)
 		except Exception as e:
 			logger.exception(f"General Exception In construct_context_string", e)
+			time.sleep(5)
 
 		things.reverse()
 		out = ""
@@ -676,7 +679,6 @@ class BotRunner:
 				time.sleep(5)
 
 	def run(self):
-		global exception_occurred
 		text_reply_thread = threading.Thread(target=self.responding_background_process, name="reply-thread", daemon=True)
 		text_reply_thread.start()
 
@@ -692,9 +694,5 @@ class BotRunner:
 		create_submission_thread = threading.Thread(target=self.create_submission_task, name="create-submission-thread", daemon=True)
 		create_submission_thread.start()
 
-		while True:  # Inner loop to check for exceptions
-			if exception_occurred:
-				logger.critical("Critical exception from `run` method. Exiting program.")
-				exception_occurred = False
-				sys.exit(1)
+		while True:
 			time.sleep(1)

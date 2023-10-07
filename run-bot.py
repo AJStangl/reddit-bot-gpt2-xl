@@ -21,7 +21,7 @@ def signal_handler(signum, frame):
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Run Reddit bots.')
-	parser.add_argument('--mode', choices=['text', 'image', 'both'], default='image', help='Mode to run the bot in.')
+	parser.add_argument('--mode', choices=['text', 'image', 'both'], default='text', help='Mode to run the bot in.')
 	args = parser.parse_args()
 	logging.basicConfig(level=logging.INFO, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
 	if os.path.exists(os.environ.get("LOCK_PATH")):

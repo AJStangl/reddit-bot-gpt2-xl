@@ -35,3 +35,7 @@ def main():
 		print(f"Total Characters: {sum([len(line) for line in lines])}")
 		print(f"Average Characters: {sum([len(line) for line in lines]) / len(lines)}")
 		print(f"Average Tokens: {sum([len(line.split()) for line in lines]) / len(lines)}")
+
+
+if __name__ == '__main__':
+	main()
