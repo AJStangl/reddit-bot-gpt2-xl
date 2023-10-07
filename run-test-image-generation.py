@@ -5,6 +5,10 @@ import json
 import random
 import re
 import time
+
+from azure.core.credentials import AzureNamedKeyCredential
+from azure.data.tables import TableServiceClient, TableClient
+from azure.storage.blob import BlobServiceClient
 from tqdm import tqdm
 import numpy as np
 import pandas
@@ -21,9 +25,54 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 load_dotenv()
-
+logging.getLogger("azure").setLevel(logging.ERROR)
 logging.basicConfig(level=logging.INFO, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+class AzureCloudStorage:
+	def write_image_to_cloud(self, final_image_path: str):
+		blob_service_client = BlobServiceClient.from_connection_string(os.environ["AZURE_STORAGE_CONNECTION_STRING"])
+		blob_client = blob_service_client.get_blob_client(container="images", blob=os.path.basename(final_image_path))
+
+		try:
+			with open(final_image_path, "rb") as f:
+				image_data = f.read()
+				blob_client.upload_blob(image_data, overwrite=True)
+				final_remote_path = f"https://ajdevreddit.blob.core.windows.net/images/{os.path.basename(final_image_path)}"
+				return final_remote_path
+
+		except Exception as e:
+			logger.exception(e)
+			raise Exception(e)
+
+		finally:
+			blob_client.close()
+			blob_service_client.close()
+
+	def write_output_to_table_storage_row(self, subject_key, iteration, title, caption, style, final_remote_path):
+		import datetime
+		inverted_ticks = str(int((datetime.datetime.max - datetime.datetime.utcnow()).total_seconds()))
+		entity = {
+			"PartitionKey": inverted_ticks + "-" + subject_key,
+			"RowKey":  inverted_ticks + "-" + subject_key + "-" + str(iteration),
+			"TimeStamp": datetime.datetime.now(),
+			"prompt": caption,
+			"title": title,
+			"style": style,
+			"path": final_remote_path
+		}
+		service_client: TableServiceClient = TableServiceClient(endpoint=os.environ["AZURE_TABLE_ENDPOINT"],
+																credential=AzureNamedKeyCredential(
+																	os.environ["AZURE_ACCOUNT_NAME"],
+																	os.environ["AZURE_ACCOUNT_KEY"]))
+		table_client: TableClient = service_client.get_table_client("generations")
+		try:
+			table_client.upsert_entity(entity=entity)
+		except Exception as e:
+			logger.exception(f"{e}")
+			table_client.close()
+			service_client.close()
 
 
 class RedditPoster:
@@ -59,6 +108,7 @@ class RedditPoster:
 					break
 			submission.mod.approve()
 			submission.reply(body=info_string[0:9999])
+
 		except Exception as e:
 			logger.exception(e)
 
@@ -67,9 +117,22 @@ class ImageBot:
 	def __init__(self):
 		self.loras = None
 		self.loras = self.get_loras()
+		self.azure_cloud_storage = AzureCloudStorage()
 
-	def get_image(self, caption: str, negative_prompt: str, steps: int, scale: int, denoising_strength: float,
-				  sampler_name: str, upscaler: str, lora_name: str, info_string: str):
+	def get_image(self,
+				  caption: str,
+				  negative_prompt: str,
+				  steps: int,
+				  scale: int,
+				  denoising_strength: float,
+				  sampler_name: str,
+				  upscaler: str,
+				  lora_name: str,
+				  info_string: str,
+				  title: str,
+				  subject: str,
+				  lora: str):
+
 		data = {
 			"enable_hr": True,
 			"denoising_strength": denoising_strength,
@@ -135,6 +198,15 @@ class ImageBot:
 					'image_path': save_path,
 					'caption': caption,
 				})
+				self.azure_cloud_storage.write_image_to_cloud(save_path)
+				self.azure_cloud_storage.write_output_to_table_storage_row(
+					subject_key=lora_name,
+					iteration=i,
+					title=title,
+					caption=caption,
+					style=lora,
+					final_remote_path=f"https://ajdevreddit.blob.core.windows.net/images/{os.path.basename(save_path)}"
+				)
 			with open(os.path.join(out_path, f'{image_hash}.txt'), 'w', encoding='utf-8') as f:
 				f.write(info_string)
 			return data
@@ -281,8 +353,6 @@ class UtilityFunctions:
 	==================================================
 	
 				"""
-
-		logger.info(f":: Generating Images For {subject} - {lora}")
 		try:
 			images = self.image_bot.get_image(
 				caption=base_caption,
@@ -293,7 +363,10 @@ class UtilityFunctions:
 				sampler_name="DDIM",
 				upscaler=upscaler,
 				lora_name=lora,
-				info_string=info_string)
+				info_string=info_string,
+				title=title,
+				subject=subject,
+				lora=lora)
 			if len(images) == 0:
 				return None
 			self.reddit_poster.create_submission(
@@ -302,7 +375,6 @@ class UtilityFunctions:
 				images=images,
 				info_string=info_string
 			)
-			logger.info(f":: Generated Images For {subject} - {lora}")
 			return None
 		except Exception as e:
 			logger.exception(e)
@@ -316,16 +388,21 @@ if __name__ == '__main__':
 		responses = utility_functions.data_mapper.lora_api_response
 		for elem in tqdm(responses, desc=f"Generating Images for All Responses", total=len(responses)):
 			lora_things = utility_functions.get_lora_object(elem)
-			for lora_thing in tqdm(lora_things, desc=f"Generating Images for {elem['name']}", total=len(lora_things)):
+			lora_things_list = list(lora_things)
+			for lora_thing in tqdm(lora_things_list, desc=f"Generating Images for {elem.get('name')}", total=len(lora_things_list)):
+				stash_name = lora_thing.get('stash-name')
+				prompt = lora_thing.get('prompt')
 				if lora_thing.get('stash-name') in db:
-					logger.info(f":: Skipping {lora_thing.get('stash-name')}")
+					tqdm.write(f"\n:: Skipping {lora_thing.get('stash-name')}")
 					continue
 				if lora_thing is None:
-					logger.info(f":: Skipping lora thing as it is None")
+					tqdm.write(f"\n:: Skipping lora thing as it is None")
 					continue
 				else:
 					try:
+						tqdm.write(f"\nGenerating Images for {stash_name} - {prompt}")
 						utility_functions.run_generation(lora_thing)
+						tqdm.write(f"\n:: Finished Generating Images for {stash_name} - {prompt}")
 						db[lora_thing.get('stash-name')] = True
 					except Exception as e:
 						logger.exception(e)

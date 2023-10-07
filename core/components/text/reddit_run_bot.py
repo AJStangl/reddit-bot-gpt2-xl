@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import io
+import itertools
 import json
 import logging
 import os
@@ -338,9 +339,11 @@ class BotRunner:
 					self.result_queue.put(input_data)
 				else:
 					logger.error(f"Max retries reached for comment {reply_id}")
+					time.sleep(5)
 
 			except Exception as e:
 				logger.error(f"An unexpected error occurred: {e}")
+				time.sleep(120)
 
 	def task_queue_handler(self, data: dict):
 		self.task_queue.put(data)
@@ -487,7 +490,7 @@ class BotRunner:
 			'text': result_dict.get('text'),
 			'image': result_dict.get('image'),
 			'bot': chosen_bot_key,
-			'subreddit': os.environ.get("SUBREDDIT_TO_MONITOR")
+			'subreddit': os.environ.get("SUBREDDIT_TO_MONITOR").split("+")[0]
 		}
 
 	def get_image(self, caption: str):
@@ -518,13 +521,13 @@ class BotRunner:
 			image = data.get('image')
 			if text is None and image is None:
 				return None
-			if image:
-				self.get_image(image)
-				subreddit.submit_image(title, image_path=image, without_websockets=True)
-				logger.info(f"{bot} has Created an Image Post")
-			else:
-				result = subreddit.submit(title, selftext=text)
-				logger.info(f"{bot} has Created A Submission: at https://www.reddit.com{result.permalink}")
+			# if image:
+			# 	self.get_image(image)
+			# 	subreddit.submit_image(title, image_path=image, without_websockets=True)
+			# 	logger.info(f"{bot} has Created an Image Post")
+			# else:
+			result = subreddit.submit(title, selftext=text)
+			logger.info(f"{bot} has Created A Submission: at https://www.reddit.com{result.permalink}")
 		except Exception as e:
 			logger.error(e)
 
@@ -627,50 +630,37 @@ class BotRunner:
 				logger.debug(f":: Next Post In {self.next_hour_current_time - datetime.timestamp(datetime.now())} Seconds")
 				time.sleep(5)
 
-	def comment_stream_task(self):
-		logger.info(":: Starting comment_stream_task")
+	def combined_stream_task(self):
+		logger.info(":: Starting combined_stream_task")
+		sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
+		subreddit = self.reddit.subreddit(sub_names)
+
 		while True:
 			try:
-				sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
-				subreddit = self.reddit.subreddit(sub_names)
-				for comment in subreddit.stream.comments(pause_after=-1, skip_existing=True):
-					if random.randint(0, 100) < int(os.environ.get("COMMENT_PROBABILITY")):
-						continue
-					if comment is None:
+				comment_stream = subreddit.stream.comments(pause_after=-1, skip_existing=True)
+				submission_stream = subreddit.stream.submissions(pause_after=-1, skip_existing=True)
+
+				for item in itertools.chain(comment_stream, submission_stream):
+					if item is None:
 						time.sleep(5)
 						continue
 
-					if isinstance(comment, Comment):
-						comment_key = f"{comment.id}-comment"
-						comment_seen = self.get_value_by_key(comment_key)
-						if comment_seen:
+					if isinstance(item, Comment):
+						if random.randint(0, 100) > int(os.environ.get("COMMENT_PROBABILITY")):
+							continue
+						item_key = f"{item.id}-comment"
+						item_seen = self.get_value_by_key(item_key)
+						if item_seen:
 							time.sleep(5)
 							continue
 						else:
-							self.process_comment(comment=comment)
-							self.set_value_by_key(comment_key, True)
+							self.process_comment(comment=item)
+							self.set_value_by_key(item_key, True)
 
-			except Exception as e:
-				logger.exception(e)
-				time.sleep(5)
-				continue
-			finally:
-				time.sleep(5)
+					elif isinstance(item, Submission):
+						self.process_submission(submission=item)
+						time.sleep(5)
 
-	def submission_stream_task(self):
-		logger.info(":: Starting submission_stream_task")
-		sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
-		subreddit = self.reddit.subreddit(sub_names)
-		while True:
-			try:
-				for submission in subreddit.stream.submissions(pause_after=-1, skip_existing=True):
-					if isinstance(submission, Submission):
-						if submission is None:
-							time.sleep(5)
-							continue
-						else:
-							self.process_submission(submission=submission)
-							time.sleep(5)
 			except Exception as e:
 				logger.exception(e)
 				time.sleep(5)
@@ -685,11 +675,8 @@ class BotRunner:
 		text_generation_thread = threading.Thread(target=self.text_generation_background_task, name="text-generation-thread", daemon=True)
 		text_generation_thread.start()
 
-		comment_stream_thread = threading.Thread(target=self.comment_stream_task, name="comment-stream-thread", daemon=True)
-		comment_stream_thread.start()
-
-		submission_stream_thread = threading.Thread(target=self.submission_stream_task, name="submission-stream-thread", daemon=True)
-		submission_stream_thread.start()
+		combined_stream_task_thread = threading.Thread(target=self.combined_stream_task, name="combined-stream-thread", daemon=True)
+		combined_stream_task_thread.start()
 
 		create_submission_thread = threading.Thread(target=self.create_submission_task, name="create-submission-thread", daemon=True)
 		create_submission_thread.start()
