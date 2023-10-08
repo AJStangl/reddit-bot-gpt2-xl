@@ -1,4 +1,5 @@
 import base64
+import dataclasses
 import hashlib
 import io
 import json
@@ -29,6 +30,26 @@ logging.getLogger("azure").setLevel(logging.ERROR)
 logging.basicConfig(level=logging.INFO, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+from dataclasses import dataclass, field
+from typing import Dict, Any
+
+
+@dataclass
+class Metadata:
+	ss_tag_frequency: Dict[str, Dict[str, int]]
+
+	def get_captions(self):
+		key = list(self.ss_tag_frequency.get('ss_tag_frequency').keys())[0]
+		return list(self.ss_tag_frequency.get("ss_tag_frequency").get(key).keys())
+
+
+@dataclass
+class LoraData:
+	name: str
+	alias: str
+	path: str
+	metadata: Metadata
+
 
 class AzureCloudStorage:
 	def write_image_to_cloud(self, final_image_path: str):
@@ -55,7 +76,7 @@ class AzureCloudStorage:
 		inverted_ticks = str(int((datetime.datetime.max - datetime.datetime.utcnow()).total_seconds()))
 		entity = {
 			"PartitionKey": inverted_ticks + "-" + subject_key,
-			"RowKey":  inverted_ticks + "-" + subject_key + "-" + str(iteration),
+			"RowKey": inverted_ticks + "-" + subject_key + "-" + str(iteration),
 			"TimeStamp": datetime.datetime.now(),
 			"prompt": caption,
 			"title": title,
@@ -118,6 +139,26 @@ class ImageBot:
 		self.loras = None
 		self.loras = self.get_loras()
 		self.azure_cloud_storage = AzureCloudStorage()
+		self.text_lock_path = os.path.join(os.environ.get("LOCK_PATH"), "text.lock")
+		self.image_lock_path = os.path.join(os.environ.get("LOCK_PATH"), "sd.lock")
+
+	def create_lock(self):
+		try:
+			logger.debug("Creating lock")
+			with open(self.image_lock_path, "wb") as handle:
+				handle.write(b"")
+		except Exception as e:
+			logger.error(f"An error occurred while creating temp lock: {e}")
+
+	def clear_lock(self):
+		try:
+			logger.debug("Clearing lock")
+			if os.path.exists(self.image_lock_path):
+				os.remove(self.image_lock_path)
+			else:
+				logger.warning(f"Lock file {self.image_lock_path} does not exist.")
+		except Exception as e:
+			logger.error(f"An error occurred while deleting text lock: {e}")
 
 	def get_image(self,
 				  caption: str,
@@ -154,7 +195,7 @@ class ImageBot:
 			"seed_resize_from_h": -1,
 			"seed_resize_from_w": -1,
 			"sampler_name": sampler_name,
-			"batch_size": 8,
+			"batch_size": 4,
 			"n_iter": 1,
 			"steps": steps,
 			"cfg_scale": scale,
@@ -181,6 +222,11 @@ class ImageBot:
 			"alwayson_scripts": {}
 		}
 		try:
+			self.create_lock()
+			while os.path.exists(self.text_lock_path):
+				time.sleep(1)
+				continue
+
 			_response = requests.post("http://127.0.0.1:7860/sdapi/v1/txt2img",
 									  headers={'accept': 'application/json', 'Content-Type': 'application/json'},
 									  json=data)
@@ -209,6 +255,7 @@ class ImageBot:
 				)
 			with open(os.path.join(out_path, f'{image_hash}.txt'), 'w', encoding='utf-8') as f:
 				f.write(info_string)
+			self.clear_lock()
 			return data
 		except Exception as e:
 			logger.exception(e)
@@ -241,8 +288,7 @@ class DataMapper:
 	def __init__(self):
 		self.caption_lookup: dict = json.loads(open('data/caption-lookup.json', 'r').read())
 		self.lora_api_response: dict = json.loads(open('data/lora-api-response.json', 'r').read())
-		self.model_type_negatives: dict = pandas.read_csv('data/model-type-negatives.tsv', sep='\t').to_dict(
-			orient='records')
+		self.model_type_negatives: dict = pandas.read_csv('data/model-type-negatives.tsv', sep='\t').to_dict(orient='records')
 		self.negative_prompts: dict = json.loads(open('data/negative-prompts.json', 'r').read())
 		self.black_list_loras: list = open('data/blacklist.txt', 'r').read().split(',')
 
@@ -259,46 +305,6 @@ class UtilityFunctions:
 		masked_text.strip()
 		return masked_text
 
-	def get_lora_object(self, static_lora) -> dict:
-		lora_name = static_lora['alias']
-		lora_model = static_lora['name']
-		all_lora_data = self.data_mapper.caption_lookup[lora_name]
-		for i, random_lora_data in enumerate(all_lora_data):
-			title = random_lora_data.get('title')
-			caption = random_lora_data.get('caption')
-
-			data_dict = list(static_lora['metadata']['ss_tag_frequency'].values())[0]
-			sorted_data_dict = {k: v for k, v in sorted(data_dict.items(), key=lambda item: item[1], reverse=True)}
-
-			all_known_captions = list(set(sorted_data_dict.keys()))
-
-			tfidf_vectorizer = TfidfVectorizer()
-			tfidf_vectorizer.fit(all_known_captions + [caption])
-			input_transform_vector = tfidf_vectorizer.transform([caption])
-			all_known_captions_vector = tfidf_vectorizer.transform(all_known_captions)
-
-			similarity_scores = cosine_similarity(input_transform_vector, all_known_captions_vector)
-
-			most_similar_idx = np.argmax(similarity_scores)
-
-			best_caption = all_known_captions[most_similar_idx]
-			random_lora_type = \
-			[item['type'] for item in self.data_mapper.model_type_negatives if item['name'] == lora_name][0]
-			negative_prompt = self.data_mapper.negative_prompts.get(random_lora_type)
-
-			negative_prompt_string = ", ".join(negative_prompt).strip()
-
-			best_caption += f" <lora:{lora_model}:1>"
-			result = {
-				'title': title,
-				'prompt': best_caption,
-				'subject': lora_name,
-				'negative_prompt': negative_prompt_string.strip(),
-				'lora': lora_model,
-				'stash-name': f"{lora_model}-{i}"
-			}
-			yield result
-
 	def run_generation(self, lora_prompt):
 		denoising_strength = round(random.uniform(0.05, 0.2), 2)
 		num_steps = random.randint(20, 20)
@@ -306,7 +312,7 @@ class UtilityFunctions:
 		sampler_name = "DDIM"
 		upscaler = "Lanczos"
 		try:
-			title = self.mask_social_text(lora_prompt['title'])
+			title = lora_prompt['title']
 			subject = lora_prompt['subject']
 			base_caption = lora_prompt['prompt']
 			lora = lora_prompt['lora']
@@ -384,26 +390,59 @@ class UtilityFunctions:
 if __name__ == '__main__':
 	utility_functions: UtilityFunctions = UtilityFunctions()
 	shelve_path = 'bruh.shelve'
-	with shelve.open(shelve_path) as db:
-		responses = utility_functions.data_mapper.lora_api_response
-		for elem in tqdm(responses, desc=f"Generating Images for All Responses", total=len(responses)):
-			lora_things = utility_functions.get_lora_object(elem)
-			lora_things_list = list(lora_things)
-			for lora_thing in tqdm(lora_things_list, desc=f"Generating Images for {elem.get('name')}", total=len(lora_things_list)):
-				stash_name = lora_thing.get('stash-name')
-				prompt = lora_thing.get('prompt')
-				if lora_thing.get('stash-name') in db:
-					tqdm.write(f"\n:: Skipping {lora_thing.get('stash-name')}")
-					continue
-				if lora_thing is None:
-					tqdm.write(f"\n:: Skipping lora thing as it is None")
-					continue
-				else:
-					try:
-						tqdm.write(f"\nGenerating Images for {stash_name} - {prompt}")
-						utility_functions.run_generation(lora_thing)
-						tqdm.write(f"\n:: Finished Generating Images for {stash_name} - {prompt}")
-						db[lora_thing.get('stash-name')] = True
-					except Exception as e:
-						logger.exception(e)
+	while True:
+		with shelve.open(shelve_path) as db:
+			responses = utility_functions.data_mapper.lora_api_response
+			lora_data = [LoraData(**item) for item in responses]
+
+			random.shuffle(lora_data)
+
+			for elem in tqdm(lora_data, desc='Lora Data', total=len(lora_data)):
+				meta_data: Metadata = Metadata(elem.metadata)
+				captions = meta_data.get_captions()
+
+				random.shuffle(captions)
+				for caption in tqdm(captions, desc=f'Generating images for {elem.alias}', total=len(captions)):
+					unique_caption_id = hashlib.md5(caption.encode()).hexdigest()
+					lora_model_name = elem.name
+					lora_subject_name = elem.alias
+					if elem.alias == "SaraMeiKasai":
+						possible_titles = utility_functions.data_mapper.caption_lookup["SaraMei"]
+					else:
+						possible_titles = utility_functions.data_mapper.caption_lookup[elem.alias]
+					caption_map = {item['caption']: item['title'] for item in utility_functions.data_mapper.caption_lookup[elem.alias]}
+					all_known_captions = list(caption_map.keys())
+
+					tfidf_vectorizer = TfidfVectorizer()
+
+					tfidf_vectorizer.fit(all_known_captions + [caption])
+					input_transform_vector = tfidf_vectorizer.transform([caption])
+
+					all_known_captions_vector = tfidf_vectorizer.transform(all_known_captions)
+					similarity_scores = cosine_similarity(input_transform_vector, all_known_captions_vector)
+
+					most_similar_idx = np.argmax(similarity_scores)
+					best_caption = all_known_captions[most_similar_idx]
+
+					lora_title_for_caption = caption_map.get(best_caption, {})
+					lora_title_for_caption = utility_functions.mask_social_text(lora_title_for_caption)
+
+					negative_prompt = utility_functions.data_mapper.negative_prompts.get(next(item['type'] for item in utility_functions.data_mapper.model_type_negatives if item['name'] == lora_subject_name), "")
+
+					negative_prompt_string = ", ".join(negative_prompt).strip()
+					caption += f" <lora:{lora_model_name}:1>"
+					data = {
+						'title': lora_title_for_caption,
+						'prompt': caption,
+						'subject': lora_subject_name,
+						'negative_prompt': negative_prompt_string.strip(),
+						'lora': lora_model_name,
+						'stash-name': f"{lora_model_name}-{unique_caption_id}"
+					}
+					if data.get('stash-name') in db:
+						tqdm.write(f"\n:: Skipping {data.get('stash-name')}")
 						continue
+					else:
+						utility_functions.run_generation(data)
+						db[data.get('stash-name')] = True
+						break
