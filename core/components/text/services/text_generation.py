@@ -16,8 +16,8 @@ from transformers import logging as transformers_logging
 from transformers import pipeline
 from core.components.text.services.generation_arguments import image_generation_arguments
 
-warnings.filterwarnings("ignore")
-transformers_logging.set_verbosity(transformers_logging.FATAL)
+# warnings.filterwarnings("ignore")
+# transformers_logging.set_verbosity(transformers_logging.FATAL)
 
 load_dotenv()
 
@@ -37,7 +37,8 @@ class TextGenerator:
 		self.model_path: str = model_path
 		self.text_model: GPT2LMHeadModel = self.load_model(self.model_path)
 		self.tokenizer: GPT2Tokenizer = self.load_tokenizer(self.model_path)
-		self.device: torch.device = torch.device(str(Device.cpu.value))
+		self.device: torch.device = torch.device("cuda")
+		self.text_model.to(self.device)
 
 	def set_device(self, device: Device):
 		device: torch.device = torch.device(str(device.value))
@@ -56,29 +57,19 @@ class TextGenerator:
 		tokenizer.pad_token = tokenizer.eos_token
 		return tokenizer
 
-	@torch.no_grad()
+
 	def generate(self, prompt: str) -> Optional[str]:
-		self.set_device(Device.gpu)
 		try:
 			encoding = self.tokenizer(prompt, padding=False, return_tensors='pt').to(self.device)
 			inputs = encoding['input_ids']
 			attention_mask = encoding['attention_mask']
 			self.check_encoding(inputs=inputs, attention_mask=attention_mask)
 
-			args = self.get_generative_text_args(inputs=inputs, attention_mask=attention_mask)
-
-			self.text_model.to(self.device)
-
 			# _, encoded_completion = next(enumerate(self.text_model.generate(**args)))
 			result = None
-			for item in self.text_model.generate(**args):
+			for item in self.text_model.generate(inputs=inputs, attention_mask=attention_mask, max_length=512, repetition_penalty=1.1, num_return_sequences=1):
 				result = self.tokenizer.decode(item, skip_special_tokens=True, clean_up_tokenization_spaces=True)
-
-			# decoded_completion = self.tokenizer.decode(encoded_completion, skip_special_tokens=True,
-			# 										   clean_up_tokenization_spaces=True)
-			self.set_device(Device.cpu)
-			encoding.to(self.device)
-			self.text_model.to(self.device)
+				break
 			return result
 
 		except Exception as e:

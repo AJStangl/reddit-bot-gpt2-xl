@@ -23,7 +23,6 @@ class CommentHandlerThread(threading.Thread):
 		self.sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
 		self.file_stash: FileCacheQueue = file_stash
 		self.config = ConfigurationManager()
-		self._stop_event = threading.Event()
 
 	def run(self):
 		logger.info(":: Starting Comment-Handler-Thread")
@@ -104,7 +103,11 @@ class CommentHandlerThread(threading.Thread):
 						'counter': counter,
 						'text': cached_thing
 					}
-					things.append(cached)
+					if isinstance(cached, dict):
+						cached = cached.get('text')
+						things.append(cached)
+					else:
+						things.append(cached)
 					counter += 1
 					current_comment = current_comment.parent()
 					continue
@@ -120,7 +123,7 @@ class CommentHandlerThread(threading.Thread):
 					thing['counter'] = counter
 					thing['text'] = current_comment.body
 					things.append(current_comment.body)
-					self.file_stash.cache_set(comment_key, thing['text'])
+					self.file_stash.cache_set(comment_key, current_comment.body)
 					counter += 1
 					if counter == 8:
 						break

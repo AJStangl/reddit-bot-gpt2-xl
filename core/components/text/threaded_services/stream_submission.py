@@ -23,7 +23,6 @@ class SubmissionHandlerThread(threading.Thread):
 		self.sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
 		self.file_stash: FileCacheQueue = file_stash
 		self.config = ConfigurationManager()
-		self._stop_event = threading.Event()
 
 	def run(self):
 		logger.info(":: Starting Submission-Handler-Thread")

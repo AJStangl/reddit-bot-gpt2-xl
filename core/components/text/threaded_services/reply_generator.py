@@ -16,7 +16,6 @@ class TextGenerationThread(threading.Thread):
 		threading.Thread.__init__(self, name=name)
 		self.generative_services: GenerativeServices = GenerativeServices()
 		self.file_stash = file_stash
-		self._stop_event = threading.Event()
 
 	def run(self):
 		logging.info("Starting Text-Generation-Thread")

@@ -18,7 +18,6 @@ class ReplyHandlerThread(threading.Thread):
 		threading.Thread.__init__(self, name=name)
 		self.reddit = praw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
 		self.file_stash = file_stash
-		self._stop_event = threading.Event()
 
 	def run(self):
 		logger.info(":: Starting Reply-Handler-Thread")
@@ -28,9 +27,10 @@ class ReplyHandlerThread(threading.Thread):
 		while True:
 			try:
 				self.handle_reply_queue()
-				self.handle_post_queue()
+				# self.handle_post_queue()
 			except Exception as e:
 				logger.exception("Unexpected error: ", e)
+				continue
 			finally:
 				time.sleep(5)
 
