@@ -35,12 +35,12 @@ class SubmissionHandlerThread(threading.Thread):
 				self.process_submissions_in_stream(subreddit)
 			except Exception as e:
 				logger.exception(e)
-				time.sleep(5)
+				time.sleep(1)
 
 	def process_submissions_in_stream(self, subreddit):
-		for item in subreddit.stream.submissions(pause_after=0, skip_existing=True):
+		for item in subreddit.stream.submissions(pause_after=0, skip_existing=False):
 			if item is None:
-				time.sleep(1)
+				time.sleep(60)
 				continue
 
 			if isinstance(item, Submission):
@@ -99,7 +99,8 @@ class SubmissionHandlerThread(threading.Thread):
 					'subreddit': mapped_submission['subreddit'],
 					'reply_id': submission.id,
 					'type': 'submission',
-					'image':''
+					'image': '',
+					'title': mapped_submission['title']
 				}
 				reddit_data = RedditComment(**data)
 				reddit_json = reddit_data.to_dict()

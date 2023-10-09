@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class CommentHandlerThread(threading.Thread):
 	def __init__(self, name: str, file_stash: FileCacheQueue):
-		threading.Thread.__init__(self, name=name)
+		threading.Thread.__init__(self, name=name, daemon=True)
 		self.reddit = praw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
 		self.sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
 		self.file_stash: FileCacheQueue = file_stash

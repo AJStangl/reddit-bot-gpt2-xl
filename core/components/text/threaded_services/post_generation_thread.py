@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class PostGenerationThread(threading.Thread):
 	def __init__(self, name: str, file_stash: FileCacheQueue):
-		threading.Thread.__init__(self, name=name)
+		threading.Thread.__init__(self, name=name, daemon=True)
 		self.file_stash = file_stash
 		self.next_time_to_post: float = self.initialize_time_to_post()
 		self.config = ConfigurationManager()
@@ -43,7 +43,7 @@ class PostGenerationThread(threading.Thread):
 					continue
 				else:
 					self.create_post_string_and_send_to_queue()
-					self.next_time_to_post = (datetime.now() + timedelta(hours=3)).timestamp()
+					self.next_time_to_post = float((datetime.now() + timedelta(hours=3)).timestamp())
 					self.file_stash.cache_set('time_to_post', self.next_time_to_post)
 			except Exception as e:
 				logger.exception("Unexpected error: ", e)

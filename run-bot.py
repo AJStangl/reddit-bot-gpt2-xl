@@ -7,6 +7,7 @@ import os
 from dotenv import load_dotenv
 
 from core.components.text.services.file_queue_caching import FileCacheQueue
+from core.components.text.threaded_services.queue_monitor_thread import QueueMonitorThread
 
 warnings.filterwarnings("ignore")
 
@@ -32,24 +33,32 @@ logger = logging.getLogger(__name__)
 class Bot(threading.Thread):
 	def __init__(self, name: str, file_stash: FileCacheQueue):
 		threading.Thread.__init__(self, name=name)
-		self.file_stash: FileCacheQueue = file_stash
+		self.file_stash:                FileCacheQueue = file_stash
 		self.comment_handler_thread:    CommentHandlerThread = CommentHandlerThread(name='comment-handler-thread', file_stash=self.file_stash)
 		self.submission_handler_thread: SubmissionHandlerThread = SubmissionHandlerThread(name='submission-handler-thread', file_stash=self.file_stash)
 		self.reply_handler_thread:      ReplyHandlerThread = ReplyHandlerThread(name='reply-handler-thread', file_stash=self.file_stash)
 		self.post_generation_thread:    PostGenerationThread = PostGenerationThread(name='post-generation-thread', file_stash=self.file_stash)
 		self.text_generation_thread:    TextGenerationThread = TextGenerationThread(name='text-generation-thread', file_stash=self.file_stash)
+		self.queue_monitor_thread:      QueueMonitorThread = QueueMonitorThread(name='queue-monitor-thread', file_stash=self.file_stash)
 
 	def run(self):
+		# Start process that monitors the queue
+		self.queue_monitor_thread.start()
+		# Start comment steam thread
 		self.comment_handler_thread.start()
+		# Start submission steam thread
 		self.submission_handler_thread.start()
+		# Start process that sends replies to reddit
 		self.reply_handler_thread.start()
+		# Start process that polls to create a post
 		self.post_generation_thread.start()
+		# Start process that generates text -- This thing can fail violently and requires a restart to ensure the child process is killed
 		self.text_generation_thread.start()
 
 
 if __name__ == '__main__':
-	file_stash: FileCacheQueue = FileCacheQueue(os.environ.get("CACHE_PATH"))
-	main_bot_thread: Bot = Bot(name='reddit-bot', file_stash=file_stash)
+	internal_file_stash: FileCacheQueue = FileCacheQueue(os.environ.get("CACHE_PATH"))
+	main_bot_thread: Bot = Bot(name='reddit-bot', file_stash=internal_file_stash)
 	main_bot_thread.start()
 
 	while True:

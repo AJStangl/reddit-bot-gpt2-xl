@@ -13,24 +13,18 @@ logger = logging.getLogger(__name__)
 
 class TextGenerationThread(threading.Thread):
 	def __init__(self, name: str, file_stash: FileCacheQueue):
-		threading.Thread.__init__(self, name=name)
-		self.generative_services: GenerativeServices = GenerativeServices()
+		threading.Thread.__init__(self, name=name, daemon=True)
+		self.generative_services: Optional[GenerativeServices] = None
 		self.file_stash = file_stash
+		self.warp_up_prompt: str = "<|startoftext|><|subreddit|>/things<|title|>What is your favorite color?<|text|>We are the knights who say ni!<|context_level|>0<|comment|>"
 
 	def run(self):
+		self.generative_services = GenerativeServices()
 		logging.info("Starting Text-Generation-Thread")
 		self.run_generator()
 
 	def run_generator(self):
-		"""
-			{
-			  'text': "<|startoftext|><|subreddit|><|title|><|text|><|context_level|>0<|comment|>",
-			  'responding_bot': 'MeganBotGPT',
-			  'subreddit': 'r/TheRatEmpire',
-			  'reply_id': 'k3y4kwn',
-			  'type': 'comment, submission, post'
-			}
-		"""
+		self.generative_services.create_prompt_completion(self.warp_up_prompt)
 		while True:
 			try:
 				data_thing: Optional[dict] = self.file_stash.queue_pop(QueueType.GENERATION)

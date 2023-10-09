@@ -67,15 +67,48 @@ class FileCacheQueue:
 		try:
 			while self.locked:
 				continue
-			with shelve.open(self.db_name) as db:
-				self.locked = True
-				queue = db[str(queue_name.value)]
-				if not queue:
+			self.locked = True
+			with shelve.open(self.db_name, writeback=True) as db:
+				queue = db.get(str(queue_name.value), [])
+				if not queue or len(queue) == 0:
+					self.locked = False
 					return None
-				value = queue.pop(0)
-				db[str(queue_name.value)] = queue
-				return value
+				if len(queue) == 0:
+					self.locked = False
+					return None
+				else:
+					value = queue.pop()
+					db[str(queue_name.value)] = queue
+					self.locked = False
+					return value
 		except Exception as e:
 			logger.exception(e)
-		finally:
-			self.locked = False
+
+	def get_queue_status(self, queue_name: QueueType):
+		try:
+			while self.locked:
+				continue
+			self.locked = True
+			with shelve.open(self.db_name, writeback=True) as db:
+				queue = db.get(str(queue_name.value), [])
+				if not queue or len(queue) == 0:
+					self.locked = False
+					return {
+						"queue_name": queue_name.value,
+						"queue_size": 0,
+					}
+				if len(queue) == 0:
+					self.locked = False
+					return {
+						"queue_name": queue_name.value,
+						"queue_size": 0,
+					}
+				else:
+					self.locked = False
+					return {
+						"queue_name": queue_name.value,
+						"queue_size": len(queue),
+					}
+		except Exception as e:
+			logger.exception(e)
+

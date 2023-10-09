@@ -406,10 +406,18 @@ if __name__ == '__main__':
 					unique_caption_id = hashlib.md5(caption.encode()).hexdigest()
 					lora_model_name = elem.name
 					lora_subject_name = elem.alias
-					if elem.alias == "SaraMeiKasai":
-						possible_titles = utility_functions.data_mapper.caption_lookup["SaraMei"]
+					if elem.alias == "SaraMeiKasai" or elem.alias == "SaraMei":
+						temp = "sarameikasai"
+						possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
+					if elem.alias == "KatieBeth" or elem.alias == "princesskatiebeth":
+						temp = "princesskatiebeth"
+						possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
+					if elem.alias == "ottokellyphotography" or elem.alias == "ottokellyphoto":
+						temp = "ottokellyphotography"
+						possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
 					else:
 						possible_titles = utility_functions.data_mapper.caption_lookup[elem.alias]
+
 					caption_map = {item['caption']: item['title'] for item in utility_functions.data_mapper.caption_lookup[elem.alias]}
 					all_known_captions = list(caption_map.keys())
 
