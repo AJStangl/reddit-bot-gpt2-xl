@@ -65,9 +65,10 @@ class TextGenerator:
 			attention_mask = encoding['attention_mask']
 			self.check_encoding(inputs=inputs, attention_mask=attention_mask)
 
+			args = self.get_generative_text_args(inputs=inputs, attention_mask=attention_mask)
 			# _, encoded_completion = next(enumerate(self.text_model.generate(**args)))
 			result = None
-			for item in self.text_model.generate(inputs=inputs, attention_mask=attention_mask, max_length=512, repetition_penalty=1.1, num_return_sequences=1):
+			for item in self.text_model.generate(**args):
 				result = self.tokenizer.decode(item, skip_special_tokens=True, clean_up_tokenization_spaces=True)
 				break
 			return result

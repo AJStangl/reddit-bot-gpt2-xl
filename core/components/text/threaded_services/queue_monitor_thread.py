@@ -34,7 +34,11 @@ class QueueMonitorThread(threading.Thread):
 				logger.info(f"{'Queue Name':<20} | {'Queue Size'}")
 				logger.info("-----------------------------------")
 				for item in statuses:
-					logger.info(f"{item['queue_name']:<20} | {item['queue_size']}")
+					if item is None:
+						continue
+					queue_name = item.get('queue_name')
+					queue_size = item.get('queue_size')
+					logger.info(f"{queue_name:<20} | {queue_size}")
 			except Exception as e:
 				logger.exception("Unexpected error: ", e)
 			finally:
