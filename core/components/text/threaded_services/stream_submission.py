@@ -10,18 +10,19 @@ from praw.models import Submission
 from core.components.text.models.internal_types import QueueType
 from core.components.text.models.queue_message import RedditComment
 from core.components.text.services.configuration_manager import ConfigurationManager
-from core.components.text.services.file_queue_caching import FileCacheQueue
+from core.components.text.services.file_queue_caching import FileCache, FileQueue
 
 logging.basicConfig(level=logging.INFO, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
 class SubmissionHandlerThread(threading.Thread):
-	def __init__(self, name: str, file_stash: FileCacheQueue, daemon: bool):
-		threading.Thread.__init__(self, name=name, daemon=daemon)
+	def __init__(self, name: str, file_stash: FileCache, daemon: bool):
+		super().__init__(name=name, daemon=daemon)
 		self.reddit = praw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
 		self.sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
-		self.file_stash: FileCacheQueue = file_stash
+		self.file_stash: FileCache = file_stash
+		self.file_queue: FileQueue = FileQueue()
 		self.config = ConfigurationManager()
 
 	def run(self):
@@ -104,4 +105,4 @@ class SubmissionHandlerThread(threading.Thread):
 				}
 				reddit_data = RedditComment(**data)
 				reddit_json = reddit_data.to_dict()
-				self.file_stash.queue_put(data, QueueType.GENERATION)
+				self.file_queue.queue_put(data, QueueType.GENERATION)

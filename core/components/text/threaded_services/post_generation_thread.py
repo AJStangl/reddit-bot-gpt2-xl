@@ -8,18 +8,19 @@ from datetime import datetime, timedelta
 from core.components.text.models.internal_types import QueueType
 from core.components.text.models.queue_message import RedditComment
 from core.components.text.services.configuration_manager import ConfigurationManager
-from core.components.text.services.file_queue_caching import FileCacheQueue
+from core.components.text.services.file_queue_caching import FileCache, FileQueue
 
 logging.basicConfig(level=logging.INFO, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
 class PostGenerationThread(threading.Thread):
-	def __init__(self, name: str, file_stash: FileCacheQueue, daemon: bool):
-		threading.Thread.__init__(self, name=name, daemon=daemon)
-		self.file_stash = file_stash
+	def __init__(self, name: str, file_stash: FileCache, daemon: bool):
+		super().__init__(name=name, daemon=daemon)
+		self.file_stash: FileCache = file_stash
 		self.next_time_to_post: float = self.initialize_time_to_post()
-		self.config = ConfigurationManager()
+		self.config: ConfigurationManager = ConfigurationManager()
+		self.file_queue: FileQueue = FileQueue()
 
 	def run(self):
 		logger.info(":: Starting Post-Generation-Thread")
@@ -62,4 +63,4 @@ class PostGenerationThread(threading.Thread):
 			title="",
 			type='post')
 		data: dict = reddit_data.to_dict()
-		self.file_stash.queue_put(data, QueueType.GENERATION)
+		self.file_queue.queue_put(data, QueueType.GENERATION)

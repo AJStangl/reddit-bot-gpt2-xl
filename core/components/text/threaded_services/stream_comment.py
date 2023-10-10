@@ -10,19 +10,20 @@ from praw.models import Comment
 
 from core.components.text.models.internal_types import QueueType
 from core.components.text.services.configuration_manager import ConfigurationManager
-from core.components.text.services.file_queue_caching import FileCacheQueue
+from core.components.text.services.file_queue_caching import FileCache, FileQueue
 
 logging.basicConfig(level=logging.INFO, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
 class CommentHandlerThread(threading.Thread):
-	def __init__(self, name: str, file_stash: FileCacheQueue, daemon: bool):
-		threading.Thread.__init__(self, name=name, daemon=daemon)
+	def __init__(self, name: str, file_stash: FileCache, daemon: bool):
+		super().__init__(name=name, daemon=daemon)
 		self.reddit = praw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
 		self.sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
-		self.file_stash: FileCacheQueue = file_stash
+		self.file_stash: FileCache = file_stash
 		self.config = ConfigurationManager()
+		self.file_queue = FileQueue()
 
 	def run(self):
 		logger.info(":: Starting Comment-Handler-Thread")
@@ -40,8 +41,6 @@ class CommentHandlerThread(threading.Thread):
 
 	def process_comments_in_stream(self, subreddit):
 		for item in subreddit.stream.comments(pause_after=0, skip_existing=True):
-			if random.random() > 0.5:
-				continue
 			if item is None:
 				time.sleep(1)
 				continue
@@ -89,7 +88,7 @@ class CommentHandlerThread(threading.Thread):
 			'reply_id': comment.id,
 			'type': 'comment'
 		}
-		self.file_stash.queue_put(data, QueueType.GENERATION)
+		self.file_queue.queue_put(data, QueueType.GENERATION)
 		self.file_stash.cache_set(comment.id, True)
 
 	def construct_context_string(self, comment: Comment) -> str:

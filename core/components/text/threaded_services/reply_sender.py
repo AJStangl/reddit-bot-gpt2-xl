@@ -6,17 +6,18 @@ import time
 import praw
 import prawcore
 from core.components.text.models.internal_types import QueueType
-from core.components.text.services.file_queue_caching import FileCacheQueue
+from core.components.text.services.file_queue_caching import FileCache, FileQueue
 
 logging.basicConfig(level=logging.INFO, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
 class ReplyHandlerThread(threading.Thread):
-	def __init__(self, name: str, file_stash: FileCacheQueue, daemon: bool):
-		threading.Thread.__init__(self, name=name, daemon=daemon)
+	def __init__(self, name: str, file_stash: FileCache, daemon: bool):
+		super().__init__(name=name, daemon=daemon)
 		self.reddit = praw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
-		self.file_stash = file_stash
+		self.file_stash: FileCache = file_stash
+		self.file_queue: FileQueue = FileQueue()
 
 	def run(self):
 		logger.info(":: Starting Reply-Handler-Thread")
@@ -34,7 +35,7 @@ class ReplyHandlerThread(threading.Thread):
 				time.sleep(5)
 
 	def handle_reply_queue(self):
-		data_thing: dict = self.file_stash.queue_pop(QueueType.REPLY)
+		data_thing: dict = self.file_queue.queue_pop(QueueType.REPLY)
 		if data_thing is None:
 			return
 		if isinstance(data_thing, str):
@@ -44,7 +45,7 @@ class ReplyHandlerThread(threading.Thread):
 		self.process_reply(data_thing)
 
 	def handle_post_queue(self):
-		data_thing: dict = self.file_stash.queue_pop(QueueType.POST)
+		data_thing: dict = self.file_queue.queue_pop(QueueType.POST)
 		if data_thing is None:
 			return
 		if isinstance(data_thing, dict):
@@ -85,7 +86,7 @@ class ReplyHandlerThread(threading.Thread):
 
 		except prawcore.PrawcoreException as e:
 			logger.error(f"APIException: {e}")
-			self.file_stash.queue_put(data_thing, QueueType.REPLY)
+			self.file_queue.queue_put(data_thing, QueueType.REPLY)
 
 		except Exception as e:
 			logger.error(f"An unexpected error occurred: {e}")

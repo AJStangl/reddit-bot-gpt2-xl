@@ -106,8 +106,7 @@ class GenerativeServices:
 	def __init__(self):
 		self.text_lock_path = os.path.join(os.environ.get("LOCK_PATH"), "text.lock")
 		self.image_lock_path = os.path.join(os.environ.get("LOCK_PATH"), "sd.lock")
-		self.detoxify: pipeline = pipeline("text-classification", model="unitary/toxic-bert",
-										   device=torch.device("cpu"))
+		self.detoxify: pipeline = pipeline("text-classification", model="unitary/toxic-bert", device=torch.device("cpu"))
 		self.processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-large")
 		self.model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large")
 		self.text_generator = TextGenerator()
