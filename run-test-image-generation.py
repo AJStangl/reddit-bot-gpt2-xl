@@ -246,6 +246,8 @@ class ImageBot:
 				image_hash = hashlib.md5(image.tobytes()).hexdigest()
 				save_path = os.path.join(out_path, f'{image_hash}-{i}.png')
 				image.save(save_path)
+				if len(caption) > 180:
+					caption = caption[:177] + "..."
 				data.append({
 					'image_path': save_path,
 					'caption': caption,
@@ -417,6 +419,11 @@ if __name__ == '__main__':
 							temp = "sarameikasai"
 							possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
 
+						if elem.alias == "SaraMei":
+							temp = "sarameikasai"
+							possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
+							caption_map = {item['caption']: item['title'] for item in
+										   utility_functions.data_mapper.caption_lookup[temp]}
 						if elem.alias == "SaraMei" or elem.alias.lower() == "saramei":
 							temp = "sarameikasai"
 							possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)

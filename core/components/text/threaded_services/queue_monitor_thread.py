@@ -1,7 +1,6 @@
 import logging
 import threading
 import time
-import json
 from datetime import timedelta
 
 from core.components.text.models.internal_types import QueueType
@@ -12,8 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 class QueueMonitorThread(threading.Thread):
-	def __init__(self, name: str, file_stash: FileCacheQueue):
-		threading.Thread.__init__(self, name=name, daemon=True)
+	def __init__(self, name: str, file_stash: FileCacheQueue, daemon: bool):
+		threading.Thread.__init__(self, name=name, daemon=daemon)
 		self.file_stash = file_stash
 		self.polling_interval: float = timedelta(minutes=1).total_seconds()
 

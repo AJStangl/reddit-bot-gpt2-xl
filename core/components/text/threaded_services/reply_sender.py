@@ -5,7 +5,6 @@ import time
 
 import praw
 import prawcore
-
 from core.components.text.models.internal_types import QueueType
 from core.components.text.services.file_queue_caching import FileCacheQueue
 
@@ -14,8 +13,8 @@ logger = logging.getLogger(__name__)
 
 
 class ReplyHandlerThread(threading.Thread):
-	def __init__(self, name: str, file_stash: FileCacheQueue):
-		threading.Thread.__init__(self, name=name, daemon=True)
+	def __init__(self, name: str, file_stash: FileCacheQueue, daemon: bool):
+		threading.Thread.__init__(self, name=name, daemon=daemon)
 		self.reddit = praw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
 		self.file_stash = file_stash
 

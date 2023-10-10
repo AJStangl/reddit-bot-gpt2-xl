@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 
 class CommentHandlerThread(threading.Thread):
-	def __init__(self, name: str, file_stash: FileCacheQueue):
-		threading.Thread.__init__(self, name=name, daemon=True)
+	def __init__(self, name: str, file_stash: FileCacheQueue, daemon: bool):
+		threading.Thread.__init__(self, name=name, daemon=daemon)
 		self.reddit = praw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
 		self.sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
 		self.file_stash: FileCacheQueue = file_stash
@@ -40,6 +40,8 @@ class CommentHandlerThread(threading.Thread):
 
 	def process_comments_in_stream(self, subreddit):
 		for item in subreddit.stream.comments(pause_after=0, skip_existing=True):
+			if random.random() > 0.5:
+				continue
 			if item is None:
 				time.sleep(1)
 				continue

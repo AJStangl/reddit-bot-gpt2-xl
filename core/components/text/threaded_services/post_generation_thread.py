@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 class PostGenerationThread(threading.Thread):
-	def __init__(self, name: str, file_stash: FileCacheQueue):
-		threading.Thread.__init__(self, name=name, daemon=True)
+	def __init__(self, name: str, file_stash: FileCacheQueue, daemon: bool):
+		threading.Thread.__init__(self, name=name, daemon=daemon)
 		self.file_stash = file_stash
 		self.next_time_to_post: float = self.initialize_time_to_post()
 		self.config = ConfigurationManager()

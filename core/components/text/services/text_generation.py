@@ -3,7 +3,6 @@ import hashlib
 import logging
 import os
 import time
-import warnings
 from io import BytesIO
 from typing import Optional
 
@@ -12,8 +11,8 @@ import torch
 from PIL import Image
 from dotenv import load_dotenv
 from transformers import GPT2Tokenizer, GPT2LMHeadModel, BlipProcessor, BlipForConditionalGeneration
-from transformers import logging as transformers_logging
 from transformers import pipeline
+
 from core.components.text.services.generation_arguments import image_generation_arguments
 
 # warnings.filterwarnings("ignore")
@@ -164,7 +163,7 @@ class GenerativeServices:
 				result = self.processor.decode(out[0], skip_special_tokens=True)
 			except Exception as e:
 				logger.exception(e)
-				result = ""
+				raise e
 			finally:
 				image.close()
 
@@ -221,6 +220,7 @@ class GenerativeServices:
 			return cleaned_completion
 		except Exception as e:
 			logger.exception(e)
+			raise e
 		finally:
 			self.clear_lock()
 
@@ -239,12 +239,6 @@ class GenerativeServices:
 				return None
 		else:
 			cleaned_completion: str = self.clean_text(completion=completion, prompt=prompt)
-
-			data = {
-				'title': "",
-				'image': "",
-				"text": cleaned_completion,
-			}
 			logger.info(self.get_info_string(prompt=prompt, completion=completion))
 			return cleaned_completion
 

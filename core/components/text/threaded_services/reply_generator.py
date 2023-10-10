@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 class TextGenerationThread(threading.Thread):
-	def __init__(self, name: str, file_stash: FileCacheQueue):
-		threading.Thread.__init__(self, name=name, daemon=True)
+	def __init__(self, name: str, file_stash: FileCacheQueue, daemon: bool):
+		threading.Thread.__init__(self, name=name, daemon=daemon)
 		self.generative_services: Optional[GenerativeServices] = None
 		self.file_stash = file_stash
 		self.warp_up_prompt: str = "<|startoftext|><|subreddit|>/things<|title|>What is your favorite color?<|text|>We are the knights who say ni!<|context_level|>0<|comment|>"
@@ -53,4 +53,4 @@ class TextGenerationThread(threading.Thread):
 						self.file_stash.queue_put(data_thing, QueueType.REPLY)
 			except Exception as e:
 				logger.exception("Unexpected error: ", e)
-				time.sleep(5)
+				raise e
