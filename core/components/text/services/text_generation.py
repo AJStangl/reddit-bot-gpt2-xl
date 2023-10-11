@@ -224,7 +224,7 @@ class GenerativeServices:
 			elapsed_time: float = end_time - start_time
 			logger.info(f":: Time taken for run_generation: {elapsed_time:.4f} seconds")
 			cleaned_completion: str = self.clean_text(completion=completion, prompt=prompt)
-			logger.info(self.get_info_string(prompt=prompt, completion=completion))
+			logger.debug(self.get_info_string(prompt=prompt, completion=completion))
 			return cleaned_completion
 		except Exception as e:
 			logger.exception(e)
@@ -247,7 +247,7 @@ class GenerativeServices:
 				return None
 		else:
 			cleaned_completion: str = self.clean_text(completion=completion, prompt=prompt)
-			logger.info(self.get_info_string(prompt=prompt, completion=completion))
+			logger.debug(self.get_info_string(prompt=prompt, completion=completion))
 			return cleaned_completion
 
 	def clean_text(self, completion, prompt) -> Optional[str]:

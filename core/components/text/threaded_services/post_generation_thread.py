@@ -27,7 +27,7 @@ class PostGenerationThread(threading.Thread):
 		self.process_generation_queue()
 
 	def initialize_time_to_post(self) -> float:
-		next_post_time = None #self.file_stash.cache_get('time_to_post')
+		next_post_time = self.file_stash.cache_get('time_to_post')
 		if next_post_time is None:
 			next_post_time = (datetime.now() + timedelta(hours=3)).timestamp()
 			self.file_stash.cache_set('time_to_post', next_post_time)
@@ -44,7 +44,7 @@ class PostGenerationThread(threading.Thread):
 					continue
 				else:
 					self.create_post_string_and_send_to_queue()
-					self.next_time_to_post = float((datetime.now() + timedelta(hours=3)).timestamp())
+					self.next_time_to_post = float((datetime.now() + timedelta(hours=1)).timestamp())
 					self.file_stash.cache_set('time_to_post', self.next_time_to_post)
 			except Exception as e:
 				logger.exception("Unexpected error: ", e)
@@ -54,13 +54,13 @@ class PostGenerationThread(threading.Thread):
 		topic = random.choice(self.config.read_topics_file())
 		posting_bot = random.choice(list(self.config.bot_map.keys()))
 		constructed_string = f"<|startoftext|><|subreddit|>r/{topic}<|title|>"
-		reddit_data = RedditComment(
-			text=constructed_string,
-			image="",
-			responding_bot=posting_bot,
-			subreddit=os.environ.get("SUBREDDIT_TO_MONITOR").split("+")[0],
-			reply_id="",
-			title="",
-			type='post')
-		data: dict = reddit_data.to_dict()
+		data: dict = {
+			'text': constructed_string,
+			"image": "",
+			"responding_bot": posting_bot,
+			"subreddit": os.environ.get("SUBREDDIT_TO_MONITOR").split("+")[0],
+			"reply_id": "",
+			"title": "",
+			"type": "post"
+		}
 		self.file_queue.queue_put(data, QueueType.GENERATION)
