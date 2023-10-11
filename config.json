@@ -1,14 +1,14 @@
 [
   {
     "name": "KimmieBotGPT",
-    "personality": "Snuggly"
+    "personality": "SafeForWorkGirl"
   },
   {
     "name": "MeganBotGPT",
-    "personality": "Sassy"
+    "personality": "LustyLibrarians"
   },
   {
     "name": "PlayHouseBot-Gpt2",
-    "personality": "Playful"
+    "personality": "RegionalManagers"
   }
 ]

@@ -15,19 +15,19 @@ logger = logging.getLogger(__name__)
 
 
 class PostGenerationThread(threading.Thread):
-	def __init__(self, name: str, file_stash: FileCache, daemon: bool):
+	def __init__(self, name: str, file_stash: FileCache, daemon: bool, file_queue: FileQueue):
 		super().__init__(name=name, daemon=daemon)
 		self.file_stash: FileCache = file_stash
 		self.next_time_to_post: float = self.initialize_time_to_post()
 		self.config: ConfigurationManager = ConfigurationManager()
-		self.file_queue: FileQueue = FileQueue()
+		self.file_queue: FileQueue = file_queue
 
 	def run(self):
 		logger.info(":: Starting Post-Generation-Thread")
 		self.process_generation_queue()
 
 	def initialize_time_to_post(self) -> float:
-		next_post_time = self.file_stash.cache_get('time_to_post')
+		next_post_time = None #self.file_stash.cache_get('time_to_post')
 		if next_post_time is None:
 			next_post_time = (datetime.now() + timedelta(hours=3)).timestamp()
 			self.file_stash.cache_set('time_to_post', next_post_time)

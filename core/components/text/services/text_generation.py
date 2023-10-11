@@ -65,8 +65,17 @@ class TextGenerator:
 			self.check_encoding(inputs=inputs, attention_mask=attention_mask)
 
 			args = self.get_generative_text_args(inputs=inputs, attention_mask=attention_mask)
-			# _, encoded_completion = next(enumerate(self.text_model.generate(**args)))
 			result = None
+			# 'input_ids': inputs,
+			# 'attention_mask': attention_mask,
+			# 'max_new_tokens': 512,
+			# 'repetition_penalty': 1.1,
+			# 'temperature': 1.2,
+			# 'top_k': 50,
+			# 'top_p': 0.95,
+			# 'do_sample': True,
+			# 'num_return_sequences': 1
+			#inputs=inputs, attention_mask=attention_mask, max_new_tokens=512
 			for item in self.text_model.generate(**args):
 				result = self.tokenizer.decode(item, skip_special_tokens=True, clean_up_tokenization_spaces=True)
 				break
@@ -74,7 +83,7 @@ class TextGenerator:
 
 		except Exception as e:
 			logger.error(e)
-			raise e
+			exit(1)
 
 	def check_encoding(self, inputs, attention_mask):
 		if inputs.size(0) <= 0 or attention_mask.size(0) <= 0:
@@ -109,7 +118,7 @@ class GenerativeServices:
 		self.detoxify: pipeline = pipeline("text-classification", model="unitary/toxic-bert", device=torch.device("cpu"))
 		self.processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-large")
 		self.model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large")
-		self.text_generator = TextGenerator()
+		self.text_generator: TextGenerator = TextGenerator()
 
 	def get_image_from_standard_diffusion(self, caption: str):
 		try:

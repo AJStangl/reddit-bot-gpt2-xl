@@ -17,13 +17,13 @@ logger = logging.getLogger(__name__)
 
 
 class CommentHandlerThread(threading.Thread):
-	def __init__(self, name: str, file_stash: FileCache, daemon: bool):
+	def __init__(self, name: str, file_stash: FileCache, daemon: bool, file_queue: FileQueue):
 		super().__init__(name=name, daemon=daemon)
 		self.reddit = praw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
 		self.sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
 		self.file_stash: FileCache = file_stash
 		self.config = ConfigurationManager()
-		self.file_queue = FileQueue()
+		self.file_queue = file_queue
 
 	def run(self):
 		logger.info(":: Starting Comment-Handler-Thread")
@@ -34,7 +34,12 @@ class CommentHandlerThread(threading.Thread):
 		while True:
 			try:
 				self.process_comments_in_stream(subreddit)
+			except prawcore.exceptions.TooManyRequests as e:
+				logger.exception(":: Pause for {30} seconds and then retry.", e)
+				time.sleep(30)
+				continue
 			except Exception as e:
+
 				logger.exception(":: Unexpected error in process_subreddit_stream", e)
 				time.sleep(5)
 				continue
@@ -68,6 +73,7 @@ class CommentHandlerThread(threading.Thread):
 		responding_bot = random.choice(filtered_bot)
 		personality = random.choice(self.config.personality_list)
 		submission = self.reddit.submission(submission_id)
+		personality = self.config.bot_map[responding_bot]
 		mapped_submission = {
 			"subreddit": 'r' + '/' + personality,
 			"title": submission.title,

@@ -12,18 +12,18 @@ logger = logging.getLogger(__name__)
 
 
 class TextGenerationThread(threading.Thread):
-	def __init__(self, name: str, daemon: bool):
-		threading.Thread.__init__(self, name=name, daemon=daemon)
-		self.generative_services: Optional[GenerativeServices] = None
-		self.file_queue: FileQueue = FileQueue()
-		self.warp_up_prompt: str = "<|startoftext|><|subreddit|>/things<|title|>What is your favorite color?<|text|>We are the knights who say ni!<|context_level|>0<|comment|>"
+	def __init__(self, name: str, daemon: bool, generative_services: GenerativeServices, file_queue: FileQueue):
+		self.generative_services: GenerativeServices = generative_services
+		self.file_queue: FileQueue = file_queue
+		self.warp_up_prompt: str = "<|startoftext|><|subreddit|>r/things<|title|>What is your favorite color?<|text|>We are the knights who say ni!<|context_level|>0<|comment|>"
+		super().__init__(name=name, daemon=daemon)
 
 	def run(self):
-		self.generative_services = GenerativeServices()
-		logging.info("Starting Text-Generation-Thread")
+		logging.info(":: Starting Text-Generation-Thread")
 		self.run_generator()
 
 	def run_generator(self):
+		logger.info(":: Starting Generative Services")
 		self.generative_services.create_prompt_completion(self.warp_up_prompt)
 		while True:
 			try:
@@ -41,6 +41,8 @@ class TextGenerationThread(threading.Thread):
 						result: str = self.generative_services.create_prompt_completion(data_thing_prompt)
 					if data_thing_type == 'post':
 						result: dict = self.generative_services.create_prompt_for_submission(data_thing_prompt)
+						if result is None:
+							continue
 						data_thing['text'] = result.get('text')
 						data_thing['image'] = result.get('image')
 						data_thing['title'] = result.get('title')
@@ -53,4 +55,4 @@ class TextGenerationThread(threading.Thread):
 						self.file_queue.queue_put(data_thing, QueueType.REPLY)
 			except Exception as e:
 				logger.exception("Unexpected error: ", e)
-				raise e
+				continue

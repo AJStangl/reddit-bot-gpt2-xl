@@ -4,17 +4,17 @@ import time
 from datetime import timedelta
 
 from core.components.text.models.internal_types import QueueType
-from core.components.text.services.file_queue_caching import FileCache, FileQueue
+from core.components.text.services.file_queue_caching import FileQueue
 
 logging.basicConfig(level=logging.INFO, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
 class QueueMonitorThread(threading.Thread):
-	def __init__(self, name: str, daemon: bool):
+	def __init__(self, name: str, daemon: bool, file_queue: FileQueue):
 		super().__init__(name=name, daemon=daemon)
 		self.polling_interval: float = timedelta(minutes=1).total_seconds()
-		self.file_queue = FileQueue()
+		self.file_queue = file_queue
 
 	def run(self):
 		logger.info(":: Starting Queue-Monitor-Thread")

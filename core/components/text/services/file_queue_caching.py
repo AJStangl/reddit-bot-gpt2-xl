@@ -15,15 +15,19 @@ logger = logging.getLogger(__name__)
 
 
 class FileCache:
-    def __init__(self, db_name, lock: multiprocessing.Lock):
+    def __init__(self, db_name, lock: threading.Lock):
         self.db_name: str = db_name
-        self.lock = lock
-        with shelve.open(self.db_name, writeback=True) as db:
-            if 'time_to_post' not in db:
-                db['time_to_post'] = (datetime.now() + timedelta(hours=3)).timestamp()
-            for queue_type in QueueType:
-                if queue_type.value not in db:
-                    db[queue_type.value] = []
+        self.lock: threading.Lock = lock
+        with self.lock:
+            with shelve.open(self.db_name, writeback=True) as db:
+                try:
+                    if 'time_to_post' not in db:
+                        db['time_to_post'] = (datetime.now() + timedelta(hours=3)).timestamp()
+                    for queue_type in QueueType:
+                        if queue_type.value not in db:
+                            db[queue_type.value] = []
+                except Exception as e:
+                    logger.exception(e)
 
     def cache_get(self, key):
         with self.lock:
@@ -47,6 +51,7 @@ class FileQueue:
         self.queue_path = os.environ.get("QUEUE_FILE_PATH")
         self.queue = {}
         self.initialize_queue()
+        self.lock = threading.Lock()
 
     def initialize_queue(self):
         try:
@@ -67,10 +72,9 @@ class FileQueue:
         try:
             queue_name = queue_type.value
             queue_path = os.path.join(self.queue_path, queue_name)
-            with FileLock(queue_path + ".lock"):
-                with open(queue_path, 'a') as f:
-                    f.write(json.dumps(value))
-                    f.write("\n")
+            with FileLock(queue_path + ".lock"), open(queue_path, 'a') as f:
+                f.write(json.dumps(value))
+                f.write("\n")
                 self.queue[queue_name].append(value)
         except Exception as e:
             logger.exception(e)
@@ -79,14 +83,13 @@ class FileQueue:
         try:
             queue_name = queue_type.value
             queue_path = os.path.join(self.queue_path, queue_name)
-            with FileLock(queue_path + ".lock"):
-                with open(queue_path, 'r') as f:
-                    lines = f.readlines()
-                    if len(lines) == 0:
-                     return None
-                with open(queue_path, 'w') as f:
-                    for line in lines[1:]:
-                        f.write(line)
+            with open(queue_path, 'r') as f:
+                lines = f.readlines()
+                if len(lines) == 0:
+                 return None
+            with open(queue_path, 'w') as f:
+                for line in lines[1:]:
+                    f.write(line)
             return json.loads(lines[0])
         except Exception as e:
             logger.exception(e)
@@ -95,13 +98,12 @@ class FileQueue:
     def get_queue_status(self, queue_type: QueueType):
         queue_name = queue_type.value
         queue_path = os.path.join(self.queue_path, queue_name)
-        with FileLock(queue_path + ".lock"):
-            try:
-                with open(queue_path, 'r') as f:
-                    lines = f.readlines()
-                    return {
-                        "queue_name": queue_type.value,
-                        "queue_size": len(lines),
-                    }
-            except Exception as e:
-                logger.exception(e)
+        try:
+            with open(queue_path, 'r') as f:
+                lines = f.readlines()
+                return {
+                    "queue_name": queue_type.value,
+                    "queue_size": len(lines),
+                }
+        except Exception as e:
+            logger.exception(e)

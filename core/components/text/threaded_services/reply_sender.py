@@ -13,21 +13,20 @@ logger = logging.getLogger(__name__)
 
 
 class ReplyHandlerThread(threading.Thread):
-	def __init__(self, name: str, file_stash: FileCache, daemon: bool):
+	def __init__(self, name: str, file_stash: FileCache, daemon: bool, file_queue: FileQueue):
 		super().__init__(name=name, daemon=daemon)
 		self.reddit = praw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
 		self.file_stash: FileCache = file_stash
-		self.file_queue: FileQueue = FileQueue()
+		self.file_queue: FileQueue = file_queue
 
 	def run(self):
-		logger.info(":: Starting Reply-Handler-Thread")
 		self.process_reply_queue()
 
 	def process_reply_queue(self):
+		logger.info(":: Starting Reply-Handler-Thread")
 		while True:
 			try:
 				self.handle_reply_queue()
-				# self.handle_post_queue()
 			except Exception as e:
 				logger.exception("Unexpected error: ", e)
 				continue
@@ -79,7 +78,7 @@ class ReplyHandlerThread(threading.Thread):
 
 			if reply_type == 'post':
 				if image is not None:
-					new_reddit.subreddit(reply_sub).submit_image(title=reply_text, image_path=image)
+					new_reddit.subreddit(reply_sub).submit_image(title=reply_text, image_path=image, without_websockets=True)
 				else:
 					submission = new_reddit.subreddit(reply_sub).submit(title=reply_text, selftext=reply_text)
 					logger.info(f":: {reply_bot} has posted to Subreddit: at https://www.reddit.com{submission.permalink}")

@@ -17,12 +17,12 @@ logger = logging.getLogger(__name__)
 
 
 class SubmissionHandlerThread(threading.Thread):
-	def __init__(self, name: str, file_stash: FileCache, daemon: bool):
+	def __init__(self, name: str, file_stash: FileCache, daemon: bool, file_queue: FileQueue):
 		super().__init__(name=name, daemon=daemon)
 		self.reddit = praw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
 		self.sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
 		self.file_stash: FileCache = file_stash
-		self.file_queue: FileQueue = FileQueue()
+		self.file_queue: FileQueue = file_queue
 		self.config = ConfigurationManager()
 
 	def run(self):
@@ -82,6 +82,7 @@ class SubmissionHandlerThread(threading.Thread):
 			if str(submission.author).lower() == bot.lower():
 				continue
 			personality = random.choice(self.config.personality_list)
+			personality = self.config.bot_map[bot]
 			mapped_submission = {
 				"subreddit": 'r/' + personality,
 				"title": submission.title,
