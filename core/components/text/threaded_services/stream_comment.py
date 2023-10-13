@@ -39,13 +39,12 @@ class CommentHandlerThread(threading.Thread):
 				time.sleep(30)
 				continue
 			except Exception as e:
-
 				logger.exception(":: Unexpected error in process_subreddit_stream", e)
 				time.sleep(5)
 				continue
 
 	def process_comments_in_stream(self, subreddit):
-		for item in subreddit.stream.comments(pause_after=0, skip_existing=True):
+		for item in subreddit.stream.comments(pause_after=-1, skip_existing=True):
 			if item is None:
 				time.sleep(1)
 				continue

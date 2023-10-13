@@ -39,9 +39,9 @@ class SubmissionHandlerThread(threading.Thread):
 				time.sleep(1)
 
 	def process_submissions_in_stream(self, subreddit):
-		for item in subreddit.stream.submissions(pause_after=0, skip_existing=False):
+		for item in subreddit.stream.submissions(pause_after=-1, skip_existing=True):
 			if item is None:
-				time.sleep(60)
+				time.sleep(30)
 				continue
 
 			if isinstance(item, Submission):
