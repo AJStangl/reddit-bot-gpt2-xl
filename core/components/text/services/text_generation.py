@@ -66,16 +66,6 @@ class TextGenerator:
 
 			args = self.get_generative_text_args(inputs=inputs, attention_mask=attention_mask)
 			result = None
-			# 'input_ids': inputs,
-			# 'attention_mask': attention_mask,
-			# 'max_new_tokens': 512,
-			# 'repetition_penalty': 1.1,
-			# 'temperature': 1.2,
-			# 'top_k': 50,
-			# 'top_p': 0.95,
-			# 'do_sample': True,
-			# 'num_return_sequences': 1
-			#inputs=inputs, attention_mask=attention_mask, max_new_tokens=512
 			for item in self.text_model.generate(**args):
 				result = self.tokenizer.decode(item, skip_special_tokens=True, clean_up_tokenization_spaces=True)
 				break
@@ -246,9 +236,33 @@ class GenerativeServices:
 			else:
 				return None
 		else:
-			cleaned_completion: str = self.clean_text(completion=completion, prompt=prompt)
+			cleaned_completion: str = self.clean_completion_for_submission(completion=completion)
 			logger.debug(self.get_info_string(prompt=prompt, completion=completion))
 			return cleaned_completion
+
+	def clean_completion_for_submission(self, completion: str) -> Optional[dict]:
+		import re
+		pattern = r'<\|(?P<tag>.*?)\|>(?P<value>.*?)(?=(<\|)|$)'
+		results = {
+			'title': '',
+			'text': '',
+			'image': '',
+		}
+		completions = re.findall(pattern, completion)
+		try:
+			for item in completions:
+				tag = item[0]
+				value = item[1]
+				if tag == 'title':
+					results['title'] = value
+				if tag == 'text':
+					results['text'] = value
+				if tag == 'image':
+					results['image'] = value
+			return results
+		except Exception as e:
+			logger.exception(e)
+			return None
 
 	def clean_text(self, completion, prompt) -> Optional[str]:
 		try:

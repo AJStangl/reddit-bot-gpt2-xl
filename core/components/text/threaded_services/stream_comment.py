@@ -17,13 +17,13 @@ logger = logging.getLogger(__name__)
 
 
 class CommentHandlerThread(threading.Thread):
-	def __init__(self, name: str, file_stash: FileCache, daemon: bool, file_queue: FileQueue):
+	def __init__(self, name: str, file_stash: FileCache, daemon: bool, file_queue: FileQueue, reddit: praw.Reddit):
 		super().__init__(name=name, daemon=daemon)
-		self.reddit = praw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
 		self.sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
 		self.file_stash: FileCache = file_stash
 		self.config = ConfigurationManager()
 		self.file_queue = file_queue
+		self.reddit: praw.Reddit = reddit
 
 	def run(self):
 		logger.info(":: Starting Comment-Handler-Thread")

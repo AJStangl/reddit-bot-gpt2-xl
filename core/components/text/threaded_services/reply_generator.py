@@ -43,13 +43,12 @@ class TextGenerationThread(threading.Thread):
 						result: dict = self.generative_services.create_prompt_for_submission(data_thing_prompt)
 						if result is None:
 							continue
-						data_thing['text'] = result.get('text')
-						data_thing['image'] = result.get('image')
-						data_thing['title'] = result.get('title')
-						self.file_queue.queue_put(result, QueueType.POST)
-						continue
-					if result is None:
-						continue
+						else:
+							data_thing['text'] = result.get('text')
+							data_thing['image'] = result.get('image')
+							data_thing['title'] = result.get('title')
+							self.file_queue.queue_put(data_thing, QueueType.POST)
+							continue
 					else:
 						data_thing['text'] = result
 						self.file_queue.queue_put(data_thing, QueueType.REPLY)

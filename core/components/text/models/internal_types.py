@@ -5,3 +5,4 @@ class QueueType(Enum):
 	GENERATION = 'generation'
 	REPLY = 'reply'
 	POST = 'post'
+	SUBMISSION = 'submission'

@@ -2,6 +2,7 @@ import os
 import time
 import warnings
 
+import praw
 from dotenv import load_dotenv
 
 from core.components.text.services.text_generation import GenerativeServices
@@ -26,28 +27,34 @@ logger = logging.getLogger(__name__)
 
 
 class Bot(threading.Thread):
-	def __init__(self, name: str, file_lock: threading.Lock, generative_services: GenerativeServices, file_queue: FileQueue):
+	def __init__(self, name: str, file_lock: threading.Lock, generative_services: GenerativeServices, file_queue: FileQueue, reddit: praw.Reddit):
 		super().__init__(name=name, daemon=True)
 		self.lock = file_lock
+		self.reddit = reddit
+
 		self.file_stash: FileCache = FileCache(os.environ.get("CACHE_PATH"), self.lock)
+
 		self.file_queue: FileQueue = file_queue
+
 		self.generative_services: GenerativeServices = generative_services
 
-		# Comments
-		self.comment_handler_thread: CommentHandlerThread = CommentHandlerThread(name='comment-handler-thread', file_stash=self.file_stash, daemon=True, file_queue=self.file_queue)
+		self.comment_handler_thread:    CommentHandlerThread = (
+			CommentHandlerThread(name='comment-handler-thread', file_stash=self.file_stash, daemon=True, file_queue=self.file_queue, reddit=self.reddit))
 
-		# Submissions
-		self.submission_handler_thread: SubmissionHandlerThread = SubmissionHandlerThread(name='submission-handler-thread', file_stash=self.file_stash, daemon=True, file_queue=self.file_queue)
+		self.submission_handler_thread: SubmissionHandlerThread = (
+			SubmissionHandlerThread(name='submission-handler-thread', file_stash=self.file_stash, daemon=True, file_queue=self.file_queue, reddit=self.reddit))
 
-		# Shared Threads
-		self.reply_handler_thread: ReplyHandlerThread = ReplyHandlerThread(name='reply-handler-thread', file_stash=self.file_stash, daemon=True, file_queue=self.file_queue)
+		self.reply_handler_thread:      ReplyHandlerThread = (
+			ReplyHandlerThread(name='reply-handler-thread', file_stash=self.file_stash, daemon=True, file_queue=self.file_queue))
 
-		self.text_generator_thread: TextGenerationThread = TextGenerationThread(name='text-generation-thread', daemon=True, generative_services=self.generative_services, file_queue=self.file_queue)
+		self.text_generator_thread:     TextGenerationThread = (
+			TextGenerationThread(name='text-generation-thread', daemon=True, generative_services=self.generative_services, file_queue=self.file_queue))
 
-		self.post_generation_thread: PostGenerationThread = PostGenerationThread(name='post-generation-thread', file_stash=self.file_stash, daemon=True, file_queue=self.file_queue)
+		self.post_generation_thread:    PostGenerationThread = (
+			PostGenerationThread(name='post-generation-thread', daemon=True, file_stash=self.file_stash, file_queue=self.file_queue))
 
-		# Independent Thread
-		self.queue_monitor_thread: QueueMonitorThread = QueueMonitorThread(name='queue-monitor-thread', daemon=True, file_queue=self.file_queue)
+		self.queue_monitor_thread:      QueueMonitorThread = (
+			QueueMonitorThread(name='queue-monitor-thread', daemon=True, file_queue=self.file_queue))
 
 
 	def run(self):
@@ -68,7 +75,8 @@ if __name__ == '__main__':
 	private_lock: threading.Lock = threading.Lock()
 	private_file_queue: FileQueue = FileQueue()
 	private_generative_services: GenerativeServices = GenerativeServices()
-	bot_thread = Bot(name='bot-process', file_lock=private_lock, generative_services=private_generative_services, file_queue=private_file_queue)
+	private_reddit: praw.Reddit = praw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
+	bot_thread: Bot = Bot(name='bot-process', file_lock=private_lock, generative_services=private_generative_services, file_queue=private_file_queue, reddit=private_reddit)
 	bot_thread.run()
 
 	try:

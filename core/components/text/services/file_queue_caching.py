@@ -64,7 +64,11 @@ class FileQueue:
                     with open(queue_path, 'a+') as f:
                         f.seek(0)
                         for line in f.readlines():
-                            self.queue[queue_name].append(json.loads(line))
+                            try:
+                                self.queue[queue_name].append(json.loads(line))
+                            except Exception as e:
+                                logger.exception(e)
+                                continue
         except Exception as e:
             logger.exception(e)
 

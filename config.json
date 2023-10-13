@@ -1,7 +1,7 @@
 [
   {
     "name": "KimmieBotGPT",
-    "personality": "SafeForWorkGirl"
+    "personality": "DankMemes"
   },
   {
     "name": "MeganBotGPT",
@@ -9,6 +9,14 @@
   },
   {
     "name": "PlayHouseBot-Gpt2",
-    "personality": "RegionalManagers"
+    "personality": "AffairsAndCheating"
+  },
+  {
+    "name": "CoopBot-GPT2",
+    "personality": "CoopAndBots"
+  },
+  {
+    "name": "FunnyGuyGPT",
+    "personality": "InsanePeople"
   }
 ]

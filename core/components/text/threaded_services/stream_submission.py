@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 
 
 class SubmissionHandlerThread(threading.Thread):
-	def __init__(self, name: str, file_stash: FileCache, daemon: bool, file_queue: FileQueue):
+	def __init__(self, name: str, file_stash: FileCache, daemon: bool, file_queue: FileQueue, reddit: praw.Reddit):
 		super().__init__(name=name, daemon=daemon)
-		self.reddit = praw.Reddit(site_name=os.environ.get("REDDIT_ACCOUNT_SECTION_NAME"))
+		self.reddit: praw.Reddit = reddit
 		self.sub_names = os.environ.get("SUBREDDIT_TO_MONITOR")
 		self.file_stash: FileCache = file_stash
 		self.file_queue: FileQueue = file_queue
@@ -104,6 +104,4 @@ class SubmissionHandlerThread(threading.Thread):
 					'image': '',
 					'title': mapped_submission['title']
 				}
-				reddit_data = RedditComment(**data)
-				reddit_json = reddit_data.to_dict()
 				self.file_queue.queue_put(data, QueueType.GENERATION)
