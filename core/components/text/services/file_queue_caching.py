@@ -13,8 +13,56 @@ from core.components.text.models.internal_types import QueueType
 logging.basicConfig(level=logging.INFO, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+import json
+import threading
+from datetime import datetime, timedelta
+
 
 class FileCache:
+    def __init__(self, db_name, lock: threading.Lock):
+        self.db_name = db_name + '.json'
+        self.lock = lock
+        with self.lock:
+            try:
+                with open(self.db_name, 'r') as f:
+                    db = json.load(f)
+            except FileNotFoundError:
+                db = {}
+
+            if 'time_to_post' not in db:
+                db['time_to_post'] = (datetime.now() + timedelta(hours=3)).timestamp()
+
+            for queue_type in QueueType:
+                if queue_type.value not in db:
+                    db[queue_type.value] = []
+
+            with open(self.db_name, 'w') as f:
+                json.dump(db, f)
+
+    def cache_get(self, key):
+        with self.lock:
+            try:
+                with open(self.db_name, 'r') as f:
+                    db = json.load(f)
+                return db.get(key, None)
+            except Exception as e:
+                # Handle exception (replace logger with your logging mechanism)
+                logger.exception(e)
+
+    def cache_set(self, key, value):
+        with self.lock:
+            try:
+                with open(self.db_name, 'r') as f:
+                    db = json.load(f)
+                db[key] = value
+                with open(self.db_name, 'w') as f:
+                    json.dump(db, f)
+            except Exception as e:
+                # Handle exception (replace logger with your logging mechanism)
+                logger.exception(e)
+
+
+class FileCache_OLD:
     def __init__(self, db_name, lock: threading.Lock):
         self.db_name: str = db_name
         self.lock: threading.Lock = lock
@@ -61,10 +109,12 @@ class FileQueue:
                 os.makedirs(os.path.dirname(queue_path), exist_ok=True)
                 self.queue[queue_name] = []
                 with FileLock(queue_path + ".lock"):
-                    with open(queue_path, 'a+') as f:
+                    with open(queue_path, 'a+', encoding='utf-8') as f:
                         f.seek(0)
                         for line in f.readlines():
                             try:
+                                if line.startswith('\x00'): # fuck if I know
+                                    continue
                                 self.queue[queue_name].append(json.loads(line))
                             except Exception as e:
                                 logger.exception(e)
@@ -76,7 +126,7 @@ class FileQueue:
         try:
             queue_name = queue_type.value
             queue_path = os.path.join(self.queue_path, queue_name)
-            with FileLock(queue_path + ".lock"), open(queue_path, 'a') as f:
+            with FileLock(queue_path + ".lock"), open(queue_path, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(value))
                 f.write("\n")
                 self.queue[queue_name].append(value)
@@ -87,7 +137,7 @@ class FileQueue:
         try:
             queue_name = queue_type.value
             queue_path = os.path.join(self.queue_path, queue_name)
-            with open(queue_path, 'r') as f:
+            with open(queue_path, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
                 if len(lines) == 0:
                  return None
