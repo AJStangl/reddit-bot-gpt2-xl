@@ -29,7 +29,7 @@ class PostGenerationThread(threading.Thread):
 	def initialize_time_to_post(self) -> float:
 		next_post_time = self.file_stash.cache_get('time_to_post')
 		if next_post_time is None:
-			next_post_time = (datetime.now() + timedelta(hours=3)).timestamp()
+			next_post_time = (datetime.now() + timedelta(hours=1)).timestamp()
 			self.file_stash.cache_set('time_to_post', next_post_time)
 			return next_post_time
 		else:

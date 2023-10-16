@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 
 
 class FileCache:
-    def __init__(self, db_name, lock: threading.Lock):
+    def __init__(self, db_name: str, lock: threading.Lock):
         self.db_name = db_name + '.json'
         self.lock = lock
         with self.lock:

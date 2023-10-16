@@ -70,31 +70,31 @@ class CommentHandlerThread(threading.Thread):
 		bots = list(self.config.bot_map.keys())
 		filtered_bot = [x for x in bots if x.lower() != str(comment.author).lower()]
 		responding_bot = random.choice(filtered_bot)
-		personality = random.choice(self.config.personality_list)
-		submission = self.reddit.submission(submission_id)
-		personality = self.config.bot_map[responding_bot]
-		mapped_submission = {
-			"subreddit": 'r' + '/' + personality,
-			"title": submission.title,
-			"text": submission.selftext
-		}
+		for bot in filtered_bot:
+			submission = self.reddit.submission(submission_id)
+			personality = self.config.bot_map[bot]
+			mapped_submission = {
+				"subreddit": 'r' + '/' + personality,
+				"title": submission.title,
+				"text": submission.selftext
+			}
 
-		if int(submission.num_comments) > int(os.environ.get('MAX_REPLIES')):
-			logger.debug(f":: Comment Has More Than 250 Replies, Skipping")
+			if int(submission.num_comments) > int(os.environ.get('MAX_REPLIES')):
+				logger.debug(f":: Comment Has More Than 250 Replies, Skipping")
+				self.file_stash.cache_set(comment.id, True)
+				return
+
+			constructed_string = f"<|startoftext|><|subreddit|>{mapped_submission['subreddit']}<|title|>{mapped_submission['title']}<|text|>{mapped_submission['text']}"
+			constructed_string += self.construct_context_string(comment)
+			data = {
+				'text': constructed_string,
+				'responding_bot': responding_bot,
+				'subreddit': mapped_submission['subreddit'],
+				'reply_id': comment.id,
+				'type': 'comment'
+			}
+			self.file_queue.queue_put(data, QueueType.GENERATION)
 			self.file_stash.cache_set(comment.id, True)
-			return
-
-		constructed_string = f"<|startoftext|><|subreddit|>{mapped_submission['subreddit']}<|title|>{mapped_submission['title']}<|text|>{mapped_submission['text']}"
-		constructed_string += self.construct_context_string(comment)
-		data = {
-			'text': constructed_string,
-			'responding_bot': responding_bot,
-			'subreddit': mapped_submission['subreddit'],
-			'reply_id': comment.id,
-			'type': 'comment'
-		}
-		self.file_queue.queue_put(data, QueueType.GENERATION)
-		self.file_stash.cache_set(comment.id, True)
 
 	def construct_context_string(self, comment: Comment) -> str:
 		things = []
@@ -118,24 +118,29 @@ class CommentHandlerThread(threading.Thread):
 					current_comment = current_comment.parent()
 					continue
 				else:
-					thing = {
-						"text": "",
-						"counter": 0
-					}
-					if thing is None:
-						time.sleep(1)
-						current_comment = current_comment.parent()
-						continue
-					thing['counter'] = counter
-					thing['text'] = current_comment.body
-					things.append(current_comment.body)
-					self.file_stash.cache_set(comment_key, current_comment.body)
-					counter += 1
-					if counter == 8:
-						break
-					else:
-						time.sleep(1)
-						current_comment = current_comment.parent()
+					try:
+						thing = {
+							"text": "",
+							"counter": 0
+						}
+						if thing is None:
+							time.sleep(1)
+							current_comment = current_comment.parent()
+							continue
+						thing['counter'] = counter
+						thing['text'] = current_comment.body
+						things.append(current_comment.body)
+						self.file_stash.cache_set(comment_key, current_comment.body)
+						counter += 1
+						if counter == 8:
+							break
+						else:
+							time.sleep(1)
+							current_comment = current_comment.parent()
+							continue
+					except prawcore.exceptions.RequestException as request_exception:
+						logger.exception("Request Error", request_exception)
+						time.sleep(30)
 						continue
 		except prawcore.exceptions.RequestException as request_exception:
 			logger.exception("Request Error", request_exception)

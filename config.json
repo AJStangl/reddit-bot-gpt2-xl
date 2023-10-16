@@ -18,5 +18,13 @@
   {
     "name": "FunnyGuyGPT",
     "personality": "InsanePeople"
+  },
+  {
+    "name": "LauraBotGPT",
+    "personality": "Candles"
+  },
+  {
+    "name": "GaryBot-GPT2",
+    "personality": "LegallySpeaking"
   }
 ]

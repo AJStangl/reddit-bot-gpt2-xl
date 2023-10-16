@@ -39,7 +39,7 @@ class SubmissionHandlerThread(threading.Thread):
 				time.sleep(1)
 
 	def process_submissions_in_stream(self, subreddit):
-		for item in subreddit.stream.submissions(pause_after=-1, skip_existing=True):
+		for item in subreddit.new(limit=5):
 			if item is None:
 				time.sleep(30)
 				continue
@@ -53,9 +53,11 @@ class SubmissionHandlerThread(threading.Thread):
 
 		if item_seen:
 			time.sleep(5)
+			return None
 		else:
 			self.process_submission(submission=submission)
 			self.file_stash.cache_set(item_key, True)
+			return None
 
 	def process_submission(self, submission):
 		if submission is None:

@@ -53,6 +53,7 @@ class ReplyHandlerThread(threading.Thread):
 			return
 
 	def process_reply(self, data_thing):
+		reply_bot = ""
 		try:
 			new_reddit = praw.Reddit(site_name=data_thing.get("responding_bot"))
 			reply_text = data_thing.get("text")
@@ -73,19 +74,21 @@ class ReplyHandlerThread(threading.Thread):
 				logger.info(f":: {reply_bot} has replied to Comment: at https://www.reddit.com{reply.permalink}")
 
 			if reply_type == 'post':
-				self.process_submission_post(reddit_instance=new_reddit, reply_sub=reply_sub, reply_bot=reply_bot, title=reply_text, text=reply_text)
+				self.process_submission_post(reddit_instance=new_reddit, reply_sub=reply_sub, reply_bot=reply_bot,
+											 title=reply_text, text=reply_text)
 
 		except prawcore.PrawcoreException as e:
-			logger.error(f"APIException: {e}")
+			logger.error(f"APIException: {e} for {reply_bot}")
 			self.file_queue.queue_put(data_thing, QueueType.REPLY)
 
 		except Exception as e:
 			logger.error(f"An unexpected error occurred: {e}")
 			time.sleep(5)
 
-	def process_submission_post(self, reddit_instance: praw.Reddit, reply_sub: str, reply_bot: str, title: str, text: str):
-			try:
-				submission = reddit_instance.subreddit(reply_sub).submit(title=title, selftext=text)
-				logger.info(f":: {reply_bot} has posted to Subreddit: at https://www.reddit.com{submission.permalink}")
-			except Exception as e:
-				logger.exception(e)
+	def process_submission_post(self, reddit_instance: praw.Reddit, reply_sub: str, reply_bot: str, title: str,
+								text: str):
+		try:
+			submission = reddit_instance.subreddit(reply_sub).submit(title=title, selftext=text)
+			logger.info(f":: {reply_bot} has posted to Subreddit: at https://www.reddit.com{submission.permalink}")
+		except Exception as e:
+			logger.exception(e)

@@ -222,7 +222,7 @@ class GenerativeServices:
 		finally:
 			self.clear_lock()
 
-	def create_prompt_for_submission(self, prompt: str) -> Optional[str]:
+	def create_prompt_for_submission(self, prompt: str) -> Optional[dict]:
 		start_time: time = time.time()
 		self.create_lock()
 		completion: str = self.text_generator.generate(prompt=prompt)
@@ -291,12 +291,12 @@ class GenerativeServices:
 
 	def ensure_non_toxic(self, input_text: str) -> bool:
 		threshold_map = {
-			'toxic': 0.99,
-			'obscene': 0.99,
-			'insult': 0.99,
-			'identity_attack': 0.99,
-			'identity_hate': 0.99,
-			'severe_toxic': 0.99,
+			'toxic': 0.75,
+			'obscene': 0.75,
+			'insult': 0.75,
+			'identity_attack': 0.75,
+			'identity_hate': 0.75,
+			'severe_toxic': 0.75,
 			'threat': 1.0
 		}
 		results = self.detoxify.predict(input_text)[0]
