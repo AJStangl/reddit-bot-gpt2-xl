@@ -71,6 +71,8 @@ class CommentHandlerThread(threading.Thread):
 		filtered_bot = [x for x in bots if x.lower() != str(comment.author).lower()]
 		responding_bot = random.choice(filtered_bot)
 		for bot in filtered_bot:
+			if random.randint(0, 100) > 50:
+				continue
 			submission = self.reddit.submission(submission_id)
 			personality = self.config.bot_map[bot]
 			mapped_submission = {
@@ -88,7 +90,7 @@ class CommentHandlerThread(threading.Thread):
 			constructed_string += self.construct_context_string(comment)
 			data = {
 				'text': constructed_string,
-				'responding_bot': responding_bot,
+				'responding_bot': bot,
 				'subreddit': mapped_submission['subreddit'],
 				'reply_id': comment.id,
 				'type': 'comment'
