@@ -299,6 +299,7 @@ class DataMapper:
 		self.model_type_negatives: dict = pandas.read_csv('data/model-type-negatives.tsv', sep='\t').to_dict(orient='records')
 		self.negative_prompts: dict = json.loads(open('data/negative-prompts.json', 'r').read())
 		self.black_list_loras: list = open('data/blacklist.txt', 'r').read().split(',')
+		self.caption_generator: list = json.loads(open('data/captions.json', 'r', encoding='utf=8').read())
 
 
 class UtilityFunctions:
@@ -310,7 +311,9 @@ class UtilityFunctions:
 	def mask_social_text(self, text):
 		masked_text = re.sub(r'#\w+', '', text)
 		masked_text = re.sub(r'@\w+', '', masked_text)
-		masked_text.strip()
+		masked_text = masked_text.strip()
+		if len(masked_text) == 0:
+			masked_text = "Untitled"
 		return masked_text
 
 	def run_generation(self, lora_prompt):
@@ -394,6 +397,23 @@ class UtilityFunctions:
 			logger.exception(e)
 			return None
 
+	def get_caption_for_subject_name(self, lora_subject_name):
+		try:
+			captions = self.data_mapper.caption_generator
+			random_title_object = [item for item in captions if lora_subject_name in item][0]
+			last_random = random.choice(random_title_object[lora_subject_name])
+			title = last_random['title']
+			caption = random.choice(last_random['captions'])
+			return {
+				'caption': caption,
+				'title': title
+			}
+
+		except Exception as e:
+			logger.exception(e)
+			return None
+
+
 
 if __name__ == '__main__':
 	pipe = pipeline("text-generation", model="Gustavosta/MagicPrompt-Stable-Diffusion")
@@ -410,91 +430,98 @@ if __name__ == '__main__':
 					meta_data: Metadata = Metadata(elem.metadata)
 					captions = meta_data.get_captions()
 
-					random.shuffle(captions)
-					for caption in tqdm(captions, desc=f'Generating images for {elem.alias}', total=len(captions)):
-						unique_caption_id = hashlib.md5(caption.encode()).hexdigest()
-						lora_model_name = elem.name
-						lora_subject_name = elem.alias
-						if elem.alias == "SaraMeiKasai":
-							temp = "sarameikasai"
-							possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
+					# random.shuffle(captions)
+					# for caption in tqdm(captions, desc=f'Generating images for {elem.alias}', total=len(captions)):
+					# 	unique_caption_id = hashlib.md5(caption.encode()).hexdigest()
+					# 	lora_model_name = elem.name
+					# 	lora_subject_name = elem.alias
+					# 	if elem.alias == "SaraMeiKasai":
+					# 		temp = "sarameikasai"
+					# 		possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
+					#
+					# 	if elem.alias == "SaraMei":
+					# 		temp = "sarameikasai"
+					# 		possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
+					# 		caption_map = {item['caption']: item['title'] for item in
+					# 					   utility_functions.data_mapper.caption_lookup[temp]}
+					# 	if elem.alias == "SaraMei" or elem.alias.lower() == "saramei":
+					# 		temp = "sarameikasai"
+					# 		possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
+					# 		caption_map = {item['caption']: item['title'] for item in
+					# 					   utility_functions.data_mapper.caption_lookup[temp]}
+					#
+					# 	if elem.alias == "KatieBeth" or elem.alias.lower() == "katiebeth":
+					# 		temp = "princesskatiebeth"
+					# 		possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
+					# 		caption_map = {item['caption']: item['title'] for item in
+					# 					   utility_functions.data_mapper.caption_lookup[temp]}
+					#
+					# 	if elem.alias.lower() == "princesskatiebeth":
+					# 		temp = "princesskatiebeth"
+					# 		possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
+					# 		caption_map = {item['caption']: item['title'] for item in
+					# 					   utility_functions.data_mapper.caption_lookup[temp]}
+					#
+					# 	if elem.alias.lower() == "ottokellyphotography":
+					# 		temp = "ottokellyphotography"
+					# 		possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
+					# 		caption_map = {item['caption']: item['title'] for item in
+					# 					   utility_functions.data_mapper.caption_lookup[temp]}
+					# 	if elem.alias.lower() == "ottokellyphoto":
+					# 		temp = "ottokellyphotography"
+					# 		possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
+					# 		caption_map = {item['caption']: item['title'] for item in utility_functions.data_mapper.caption_lookup[temp]}
+					# 	else:
+					# 		possible_titles = utility_functions.data_mapper.caption_lookup[elem.alias]
+					# 		caption_map = {item['caption']: item['title'] for item in
+					# 					   utility_functions.data_mapper.caption_lookup[elem.alias]}
+					#
+					#
+					# 	all_known_captions = list(caption_map.keys())
+					#
+					# 	tfidf_vectorizer = TfidfVectorizer()
+					#
+					# 	tfidf_vectorizer.fit(all_known_captions + [caption])
+					# 	input_transform_vector = tfidf_vectorizer.transform([caption])
+					#
+					# 	all_known_captions_vector = tfidf_vectorizer.transform(all_known_captions)
+					# 	similarity_scores = cosine_similarity(input_transform_vector, all_known_captions_vector)
+					#
+					# 	most_similar_idx = np.argmax(similarity_scores)
+					# 	best_caption = all_known_captions[most_similar_idx]
 
-						if elem.alias == "SaraMei":
-							temp = "sarameikasai"
-							possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
-							caption_map = {item['caption']: item['title'] for item in
-										   utility_functions.data_mapper.caption_lookup[temp]}
-						if elem.alias == "SaraMei" or elem.alias.lower() == "saramei":
-							temp = "sarameikasai"
-							possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
-							caption_map = {item['caption']: item['title'] for item in
-										   utility_functions.data_mapper.caption_lookup[temp]}
-
-						if elem.alias == "KatieBeth" or elem.alias.lower() == "katiebeth":
-							temp = "princesskatiebeth"
-							possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
-							caption_map = {item['caption']: item['title'] for item in
-										   utility_functions.data_mapper.caption_lookup[temp]}
-
-						if elem.alias.lower() == "princesskatiebeth":
-							temp = "princesskatiebeth"
-							possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
-							caption_map = {item['caption']: item['title'] for item in
-										   utility_functions.data_mapper.caption_lookup[temp]}
-
-						if elem.alias.lower() == "ottokellyphotography":
-							temp = "ottokellyphotography"
-							possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
-							caption_map = {item['caption']: item['title'] for item in
-										   utility_functions.data_mapper.caption_lookup[temp]}
-						if elem.alias.lower() == "ottokellyphoto":
-							temp = "ottokellyphotography"
-							possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
-							caption_map = {item['caption']: item['title'] for item in utility_functions.data_mapper.caption_lookup[temp]}
-						else:
-							possible_titles = utility_functions.data_mapper.caption_lookup[elem.alias]
-							caption_map = {item['caption']: item['title'] for item in
-										   utility_functions.data_mapper.caption_lookup[elem.alias]}
+						# lora_title_for_caption = caption_map.get(best_caption, {})
+					# lora_title_for_caption = utility_functions.mask_social_text(lora_title_for_caption)
 
 
-						all_known_captions = list(caption_map.keys())
-
-						tfidf_vectorizer = TfidfVectorizer()
-
-						tfidf_vectorizer.fit(all_known_captions + [caption])
-						input_transform_vector = tfidf_vectorizer.transform([caption])
-
-						all_known_captions_vector = tfidf_vectorizer.transform(all_known_captions)
-						similarity_scores = cosine_similarity(input_transform_vector, all_known_captions_vector)
-
-						most_similar_idx = np.argmax(similarity_scores)
-						best_caption = all_known_captions[most_similar_idx]
-
-						lora_title_for_caption = caption_map.get(best_caption, {})
-						lora_title_for_caption = utility_functions.mask_social_text(lora_title_for_caption)
-
-						negative_prompt = utility_functions.data_mapper.negative_prompts.get(next(item['type'] for item in utility_functions.data_mapper.model_type_negatives if item['name'] == lora_subject_name), "")
-
-						negative_prompt_string = ", ".join(negative_prompt).strip()
-						enriched_caption = pipe.predict(f"{caption}")
-						enriched_caption = enriched_caption[0]['generated_text']
-						enriched_caption += f" <lora:{lora_model_name}:1>"
-						logging.info(enriched_caption)
-						data = {
-							'title': lora_title_for_caption,
-							'prompt': enriched_caption,
-							'subject': lora_subject_name,
-							'negative_prompt': negative_prompt_string.strip(),
-							'lora': lora_model_name,
-							'stash-name': f"{lora_model_name}-{unique_caption_id}"
-						}
-						if data.get('stash-name') in db:
-							tqdm.write(f"\n:: Skipping {data.get('stash-name')}")
-							continue
-						else:
-							utility_functions.run_generation(data)
-							db[data.get('stash-name')] = True
-							break
+					lora_model_name = elem.name
+					lora_subject_name = elem.alias
+					data = utility_functions.get_caption_for_subject_name(lora_subject_name)
+					caption: str = data.get('caption')
+					title: str = data.get('title')
+					lora_title_for_caption: str = utility_functions.mask_social_text(title)
+					negative_prompt = utility_functions.data_mapper.negative_prompts.get(next(item['type'] for item in utility_functions.data_mapper.model_type_negatives if item['name'] == lora_subject_name), "")
+					unique_caption_id = hashlib.md5(caption.encode()).hexdigest()
+					negative_prompt_string = ", ".join(negative_prompt).strip()
+					enriched_caption = pipe.predict(f"{caption}")
+					enriched_caption = enriched_caption[0]['generated_text']
+					enriched_caption += f" <lora:{lora_model_name}:1>"
+					logging.info(enriched_caption)
+					data = {
+						'title': lora_title_for_caption,
+						'prompt': enriched_caption,
+						'subject': lora_subject_name,
+						'negative_prompt': negative_prompt_string.strip(),
+						'lora': lora_model_name,
+						'stash-name': f"{lora_model_name}-{unique_caption_id}"
+					}
+					if data.get('stash-name') in db:
+						tqdm.write(f"\n:: Skipping {data.get('stash-name')}")
+						continue
+					else:
+						utility_functions.run_generation(data)
+						db[data.get('stash-name')] = True
+						break
 			except Exception as e:
 				logger.exception(e)
 				continue

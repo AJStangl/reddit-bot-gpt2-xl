@@ -194,3 +194,7 @@ raw_training_1694874754.*.txt
 /core/finetune/raw_training_1696685739.339746.txt
 /core/chat.ipynb
 /bruh.shelve.bak
+/cache/queue/generation
+/cache/queue/post
+/cache/queue/reply
+/cache/queue/submission

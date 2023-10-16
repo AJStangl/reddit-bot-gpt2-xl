@@ -1,10 +1,5 @@
-import json
 import logging
-import multiprocessing
 import os
-import shelve
-import threading
-from datetime import datetime, timedelta
 
 from filelock import FileLock
 
@@ -57,39 +52,6 @@ class FileCache:
                 db[key] = value
                 with open(self.db_name, 'w') as f:
                     json.dump(db, f)
-            except Exception as e:
-                # Handle exception (replace logger with your logging mechanism)
-                logger.exception(e)
-
-
-class FileCache_OLD:
-    def __init__(self, db_name, lock: threading.Lock):
-        self.db_name: str = db_name
-        self.lock: threading.Lock = lock
-        with self.lock:
-            with shelve.open(self.db_name, writeback=True) as db:
-                try:
-                    if 'time_to_post' not in db:
-                        db['time_to_post'] = (datetime.now() + timedelta(hours=3)).timestamp()
-                    for queue_type in QueueType:
-                        if queue_type.value not in db:
-                            db[queue_type.value] = []
-                except Exception as e:
-                    logger.exception(e)
-
-    def cache_get(self, key):
-        with self.lock:
-            try:
-                with shelve.open(self.db_name, writeback=True) as db:
-                    return db.get(key, None)
-            except Exception as e:
-                logger.exception(e)
-
-    def cache_set(self, key, value):
-        with self.lock:
-            try:
-                with shelve.open(self.db_name, writeback=True) as db:
-                    db[key] = value
             except Exception as e:
                 logger.exception(e)
 
