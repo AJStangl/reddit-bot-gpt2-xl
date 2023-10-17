@@ -70,9 +70,11 @@ class CommentHandlerThread(threading.Thread):
 		bots = list(self.config.bot_map.keys())
 		filtered_bot = [x for x in bots if x.lower() != str(comment.author).lower()]
 		responding_bot = random.choice(filtered_bot)
-		for bot in filtered_bot:
-			if random.randint(0, 100) > 50:
-				continue
+		random.shuffle(filtered_bot)
+		for i, bot in enumerate(filtered_bot):
+			if i > 2:
+				return
+
 			submission = self.reddit.submission(submission_id)
 			personality = self.config.bot_map[bot]
 			mapped_submission = {

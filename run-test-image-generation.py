@@ -1,37 +1,32 @@
 import base64
-import dataclasses
 import hashlib
 import io
 import json
+import logging
+import os
 import random
 import re
+import shelve
 import time
 
+import pandas
+import praw
+import requests
+from PIL import Image
 from azure.core.credentials import AzureNamedKeyCredential
 from azure.data.tables import TableServiceClient, TableClient
 from azure.storage.blob import BlobServiceClient
-from tqdm import tqdm
-import numpy as np
-import pandas
-import logging
-
-import praw
-import requests
-import os
-import shelve
-from PIL import Image
 from dotenv import load_dotenv
 from praw.models import Submission
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+from tqdm import tqdm
 
 load_dotenv()
 logging.getLogger("azure").setLevel(logging.ERROR)
 logging.basicConfig(level=logging.INFO, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-from dataclasses import dataclass, field
-from typing import Dict, Any
+from dataclasses import dataclass
+from typing import Dict
 from transformers import pipeline
 
 
@@ -229,9 +224,9 @@ class ImageBot:
 		}
 		try:
 			self.create_lock()
-			while os.path.exists(self.text_lock_path):
-				time.sleep(1)
-				continue
+			# while os.path.exists(self.text_lock_path):
+			# 	time.sleep(1)
+			# 	continue
 
 			_response = requests.post("http://127.0.0.1:7860/sdapi/v1/txt2img",
 									  headers={'accept': 'application/json', 'Content-Type': 'application/json'},
@@ -273,7 +268,7 @@ class ImageBot:
 		if self.loras is None:
 			try:
 				target_loras = []
-				if os.path.exists('data/lora-api-response.json'):
+				if os.path.exists('data/lora-api-respons-1.json'):
 					r_json = json.loads(open('data/lora-api-response.json').read())
 				else:
 					r = requests.get("http://127.0.0.1:7860/sdapi/v1/loras")
@@ -399,6 +394,8 @@ class UtilityFunctions:
 
 	def get_caption_for_subject_name(self, lora_subject_name):
 		try:
+			if lora_subject_name.__contains__("Sara"):
+				lora_subject_name = "sarameikasai"
 			captions = self.data_mapper.caption_generator
 			random_title_object = [item for item in captions if lora_subject_name in item][0]
 			last_random = random.choice(random_title_object[lora_subject_name])
@@ -423,77 +420,11 @@ if __name__ == '__main__':
 		with shelve.open(shelve_path) as db:
 			responses = utility_functions.data_mapper.lora_api_response
 			lora_data = [LoraData(**item) for item in responses]
-
 			random.shuffle(lora_data)
 			try:
 				for elem in tqdm(lora_data, desc='Lora Data', total=len(lora_data)):
 					meta_data: Metadata = Metadata(elem.metadata)
 					captions = meta_data.get_captions()
-
-					# random.shuffle(captions)
-					# for caption in tqdm(captions, desc=f'Generating images for {elem.alias}', total=len(captions)):
-					# 	unique_caption_id = hashlib.md5(caption.encode()).hexdigest()
-					# 	lora_model_name = elem.name
-					# 	lora_subject_name = elem.alias
-					# 	if elem.alias == "SaraMeiKasai":
-					# 		temp = "sarameikasai"
-					# 		possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
-					#
-					# 	if elem.alias == "SaraMei":
-					# 		temp = "sarameikasai"
-					# 		possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
-					# 		caption_map = {item['caption']: item['title'] for item in
-					# 					   utility_functions.data_mapper.caption_lookup[temp]}
-					# 	if elem.alias == "SaraMei" or elem.alias.lower() == "saramei":
-					# 		temp = "sarameikasai"
-					# 		possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
-					# 		caption_map = {item['caption']: item['title'] for item in
-					# 					   utility_functions.data_mapper.caption_lookup[temp]}
-					#
-					# 	if elem.alias == "KatieBeth" or elem.alias.lower() == "katiebeth":
-					# 		temp = "princesskatiebeth"
-					# 		possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
-					# 		caption_map = {item['caption']: item['title'] for item in
-					# 					   utility_functions.data_mapper.caption_lookup[temp]}
-					#
-					# 	if elem.alias.lower() == "princesskatiebeth":
-					# 		temp = "princesskatiebeth"
-					# 		possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
-					# 		caption_map = {item['caption']: item['title'] for item in
-					# 					   utility_functions.data_mapper.caption_lookup[temp]}
-					#
-					# 	if elem.alias.lower() == "ottokellyphotography":
-					# 		temp = "ottokellyphotography"
-					# 		possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
-					# 		caption_map = {item['caption']: item['title'] for item in
-					# 					   utility_functions.data_mapper.caption_lookup[temp]}
-					# 	if elem.alias.lower() == "ottokellyphoto":
-					# 		temp = "ottokellyphotography"
-					# 		possible_titles = utility_functions.data_mapper.caption_lookup.get(temp)
-					# 		caption_map = {item['caption']: item['title'] for item in utility_functions.data_mapper.caption_lookup[temp]}
-					# 	else:
-					# 		possible_titles = utility_functions.data_mapper.caption_lookup[elem.alias]
-					# 		caption_map = {item['caption']: item['title'] for item in
-					# 					   utility_functions.data_mapper.caption_lookup[elem.alias]}
-					#
-					#
-					# 	all_known_captions = list(caption_map.keys())
-					#
-					# 	tfidf_vectorizer = TfidfVectorizer()
-					#
-					# 	tfidf_vectorizer.fit(all_known_captions + [caption])
-					# 	input_transform_vector = tfidf_vectorizer.transform([caption])
-					#
-					# 	all_known_captions_vector = tfidf_vectorizer.transform(all_known_captions)
-					# 	similarity_scores = cosine_similarity(input_transform_vector, all_known_captions_vector)
-					#
-					# 	most_similar_idx = np.argmax(similarity_scores)
-					# 	best_caption = all_known_captions[most_similar_idx]
-
-						# lora_title_for_caption = caption_map.get(best_caption, {})
-					# lora_title_for_caption = utility_functions.mask_social_text(lora_title_for_caption)
-
-
 					lora_model_name = elem.name
 					lora_subject_name = elem.alias
 					data = utility_functions.get_caption_for_subject_name(lora_subject_name)
@@ -519,9 +450,11 @@ if __name__ == '__main__':
 						tqdm.write(f"\n:: Skipping {data.get('stash-name')}")
 						continue
 					else:
+						time.sleep(60 * 3)
 						utility_functions.run_generation(data)
 						db[data.get('stash-name')] = True
-						break
+						time.sleep(60 * 3)
+						continue
 			except Exception as e:
 				logger.exception(e)
 				continue

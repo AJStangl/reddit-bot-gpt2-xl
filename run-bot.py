@@ -72,6 +72,9 @@ class Bot(threading.Thread):
 
 
 if __name__ == '__main__':
+	lock_path = "D:\\code\\repos\\reddit-bot-gpt2-xl\\locks"
+	for lock in os.listdir(lock_path):
+		os.remove(os.path.join(lock_path, lock))
 	private_lock: threading.Lock = threading.Lock()
 	private_file_queue: FileQueue = FileQueue()
 	private_generative_services: GenerativeServices = GenerativeServices()
