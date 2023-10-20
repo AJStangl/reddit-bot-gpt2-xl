@@ -223,11 +223,10 @@ class ImageBot:
 			"alwayson_scripts": {}
 		}
 		try:
-			self.create_lock()
-			# while os.path.exists(self.text_lock_path):
-			# 	time.sleep(1)
-			# 	continue
+			while os.path.exists(self.text_lock_path):
+				continue
 
+			self.create_lock()
 			_response = requests.post("http://127.0.0.1:7860/sdapi/v1/txt2img",
 									  headers={'accept': 'application/json', 'Content-Type': 'application/json'},
 									  json=data)
@@ -268,7 +267,7 @@ class ImageBot:
 		if self.loras is None:
 			try:
 				target_loras = []
-				if os.path.exists('data/lora-api-respons-1.json'):
+				if os.path.exists('data/lora-api-response.json'):
 					r_json = json.loads(open('data/lora-api-response.json').read())
 				else:
 					r = requests.get("http://127.0.0.1:7860/sdapi/v1/loras")
@@ -293,7 +292,6 @@ class DataMapper:
 		self.lora_api_response: dict = json.loads(open('data/lora-api-response.json', 'r').read())
 		self.model_type_negatives: dict = pandas.read_csv('data/model-type-negatives.tsv', sep='\t').to_dict(orient='records')
 		self.negative_prompts: dict = json.loads(open('data/negative-prompts.json', 'r').read())
-		self.black_list_loras: list = open('data/blacklist.txt', 'r').read().split(',')
 		self.caption_generator: list = json.loads(open('data/captions.json', 'r', encoding='utf=8').read())
 
 
@@ -323,8 +321,6 @@ class UtilityFunctions:
 			base_caption = lora_prompt['prompt']
 			lora = lora_prompt['lora']
 			negative_prompt = lora_prompt['negative_prompt']
-			if subject in self.data_mapper.black_list_loras:
-				return None
 		except Exception as e:
 			logger.exception(e)
 			return None
@@ -405,7 +401,6 @@ class UtilityFunctions:
 				'caption': caption,
 				'title': title
 			}
-
 		except Exception as e:
 			logger.exception(e)
 			return None
@@ -450,10 +445,9 @@ if __name__ == '__main__':
 						tqdm.write(f"\n:: Skipping {data.get('stash-name')}")
 						continue
 					else:
-						time.sleep(60 * 3)
+						time.sleep(60 * 5)
 						utility_functions.run_generation(data)
 						db[data.get('stash-name')] = True
-						time.sleep(60 * 3)
 						continue
 			except Exception as e:
 				logger.exception(e)

@@ -110,7 +110,7 @@ class GenerativeServices:
 		self.model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large")
 		self.text_generator: TextGenerator = TextGenerator()
 
-	def get_image_from_standard_diffusion(self, caption: str):
+	def get_image_from_standard_diffusion(self, caption: str) -> str:
 		try:
 			base_address = os.environ.get("STANDARD_DIFFUSION_URL")
 			response = requests.get(base_address)
@@ -140,7 +140,7 @@ class GenerativeServices:
 					'caption': caption,
 				})
 				image.close()
-			return data[0]
+			return data[0]['image_path']
 		except Exception as e:
 			logger.exception(e)
 			return None
@@ -223,30 +223,38 @@ class GenerativeServices:
 			self.clear_lock()
 
 	def create_prompt_for_submission(self, prompt: str) -> Optional[dict]:
-		start_time: time = time.time()
-		self.create_lock()
-		completion: str = self.text_generator.generate(prompt=prompt)
-		end_time: time = time.time()
-		elapsed_time: float = end_time - start_time
-		logger.info(f":: Time taken for run_generation: {elapsed_time:.4f} seconds")
-		if "<|image|>" in completion:
-			path = self.get_image_from_standard_diffusion(completion)
-			if path is not None:
-				return path
+		try:
+			start_time: time = time.time()
+			self.create_lock()
+			completion: str = self.text_generator.generate(prompt=prompt)
+			end_time: time = time.time()
+			elapsed_time: float = end_time - start_time
+			logger.info(f":: Time taken for run_generation: {elapsed_time:.4f} seconds")
+			cleaned_completion: Optional[dict] = self.clean_completion_for_submission(completion=completion)
+			if "<|image|>" in completion:
+				path = self.get_image_from_standard_diffusion(completion)
+				if path is not None:
+					return {
+						'title':  cleaned_completion.get("title"),
+						'text': cleaned_completion.get("text"),
+						'image': path,
+					}
+				else:
+					return None
 			else:
-				return None
-		else:
-			cleaned_completion: str = self.clean_completion_for_submission(completion=completion)
-			logger.debug(self.get_info_string(prompt=prompt, completion=completion))
-			return cleaned_completion
+				cleaned_completion: str = self.clean_completion_for_submission(completion=completion)
+				logger.debug(self.get_info_string(prompt=prompt, completion=completion))
+				return cleaned_completion
+		finally:
+			self.clear_lock()
 
 	def clean_completion_for_submission(self, completion: str) -> Optional[dict]:
 		import re
 		pattern = r'<\|(?P<tag>.*?)\|>(?P<value>.*?)(?=(<\|)|$)'
 		results = {
-			'title': '',
-			'text': '',
-			'image': '',
+			'title': None,
+			'text': None,
+			'image': None,
 		}
 		completions = re.findall(pattern, completion)
 		try:
