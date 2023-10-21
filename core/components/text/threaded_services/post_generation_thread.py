@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class PostGenerationThread(threading.Thread):
-	def __init__(self, name: str, file_stash: FileCache, daemon: bool, file_queue: FileQueue):
+	def __init__(self, name: str, daemon: bool, file_stash: FileCache,  file_queue: FileQueue):
 		super().__init__(name=name, daemon=daemon)
 		self.file_stash: FileCache = file_stash
 		self.next_time_to_post: float = self.initialize_time_to_post()
@@ -40,14 +40,15 @@ class PostGenerationThread(threading.Thread):
 			try:
 				current_time = datetime.now().timestamp()
 				if self.next_time_to_post > current_time:
-					time.sleep(1)
+					time.sleep(60)
 					continue
 				else:
 					self.create_post_string_and_send_to_queue()
 					self.next_time_to_post = float((datetime.now() + timedelta(hours=1)).timestamp())
 					self.file_stash.cache_set('time_to_post', self.next_time_to_post)
+					time.sleep(60)
 			except Exception as e:
-				logger.exception("Unexpected error: ", e)
+				logger.exception(e)
 				time.sleep(5)
 
 	def create_post_string_and_send_to_queue(self) -> dict:
@@ -58,7 +59,7 @@ class PostGenerationThread(threading.Thread):
 			'text': constructed_string,
 			"image": "",
 			"responding_bot": posting_bot,
-			"subreddit": os.environ.get("SUBREDDIT_TO_MONITOR").split("+")[0],
+			"subreddit": next(os.environ.get("SUBREDDIT_TO_MONITOR").split("+").__iter__()),
 			"reply_id": "",
 			"title": "",
 			"type": "post"

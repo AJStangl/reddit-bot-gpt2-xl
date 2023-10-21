@@ -15,8 +15,6 @@ from transformers import pipeline
 
 from core.components.text.services.generation_arguments import image_generation_arguments
 
-# warnings.filterwarnings("ignore")
-# transformers_logging.set_verbosity(transformers_logging.FATAL)
 
 load_dotenv()
 
@@ -56,18 +54,27 @@ class TextGenerator:
 		tokenizer.pad_token = tokenizer.eos_token
 		return tokenizer
 
-
+	@torch.no_grad()
 	def generate(self, prompt: str) -> Optional[str]:
 		try:
 			encoding = self.tokenizer(prompt, padding=False, return_tensors='pt').to(self.device)
 			inputs = encoding['input_ids']
 			attention_mask = encoding['attention_mask']
 			self.check_encoding(inputs=inputs, attention_mask=attention_mask)
-
-			args = self.get_generative_text_args(inputs=inputs, attention_mask=attention_mask)
+			config = {
+				'inputs': inputs,
+				'attention_mask': attention_mask,
+				'max_length': 512,
+				'repetition_penalty': 1.1,
+				'num_return_sequences': 1,
+				'temperature': 1.2,
+				'top_k': 50,
+				'top_p': 0.95,
+				'do_sample': True,
+			}
 			result = None
-			for item in self.text_model.generate(**args):
-				result = self.tokenizer.decode(item, skip_special_tokens=True, clean_up_tokenization_spaces=True)
+			for item in self.text_model.generate(**config):
+				result = self.tokenizer.decode(item, skip_special_tokens=False, clean_up_tokenization_spaces=True)
 				break
 			return result
 
@@ -171,30 +178,6 @@ class GenerativeServices:
 		finally:
 			return result
 
-	def create_lock(self):
-		try:
-			with open(self.text_lock_path, "wb") as handle:
-				handle.write(b"")
-		except Exception as e:
-			logging.error(f"An error occurred while creating temp lock: {e}")
-
-	def clear_lock(self):
-		try:
-			if os.path.exists(self.text_lock_path):
-				os.remove(self.text_lock_path)
-			else:
-				logging.warning(f"Lock file {self.text_lock_path} does not exist.")
-		except Exception as e:
-			logging.error(f"An error occurred while deleting text lock: {e}")
-
-	def is_in_lock_state(self):
-		if os.path.exists(self.text_lock_path):
-			return True
-		if os.path.exists(self.image_lock_path):
-			return True
-		else:
-			return False
-
 	def get_info_string(self, prompt, completion):
 		info_string = \
 			f"""
@@ -208,7 +191,6 @@ class GenerativeServices:
 	def create_prompt_completion(self, prompt: str) -> Optional[str]:
 		try:
 			start_time: time = time.time()
-			self.create_lock()
 			completion: str = self.text_generator.generate(prompt=prompt)
 			end_time: time = time.time()
 			elapsed_time: float = end_time - start_time
@@ -219,13 +201,10 @@ class GenerativeServices:
 		except Exception as e:
 			logger.exception(e)
 			raise e
-		finally:
-			self.clear_lock()
 
 	def create_prompt_for_submission(self, prompt: str) -> Optional[dict]:
 		try:
 			start_time: time = time.time()
-			self.create_lock()
 			completion: str = self.text_generator.generate(prompt=prompt)
 			end_time: time = time.time()
 			elapsed_time: float = end_time - start_time
@@ -241,12 +220,23 @@ class GenerativeServices:
 					}
 				else:
 					return None
+
+			if cleaned_completion.get("text") == "":
+				path = self.get_image_from_standard_diffusion(caption=cleaned_completion.get("title"))
+				if path is not None:
+					return {
+						'title':  cleaned_completion.get("title"),
+						'text': cleaned_completion.get("text"),
+						'image': path,
+					}
+
 			else:
 				cleaned_completion: str = self.clean_completion_for_submission(completion=completion)
 				logger.debug(self.get_info_string(prompt=prompt, completion=completion))
 				return cleaned_completion
-		finally:
-			self.clear_lock()
+		except Exception as e:
+			logger.exception(e)
+			return None
 
 	def clean_completion_for_submission(self, completion: str) -> Optional[dict]:
 		import re
@@ -298,24 +288,28 @@ class GenerativeServices:
 			return None
 
 	def ensure_non_toxic(self, input_text: str) -> bool:
-		threshold_map = {
-			'toxic': 0.75,
-			'obscene': 0.75,
-			'insult': 0.75,
-			'identity_attack': 0.75,
-			'identity_hate': 0.75,
-			'severe_toxic': 0.75,
-			'threat': 1.0
-		}
-		results = self.detoxify.predict(input_text)[0]
+		try:
+			threshold_map = {
+				'toxic': 0.75,
+				'obscene': 0.75,
+				'insult': 0.75,
+				'identity_attack': 0.75,
+				'identity_hate': 0.75,
+				'severe_toxic': 0.75,
+				'threat': 1.0
+			}
+			results = self.detoxify.predict(input_text)[0]
 
-		for key in threshold_map:
-			label = results.get("label")
-			score = results.get("score")
-			if key == label:
-				if score > threshold_map[key]:
-					logging.info(f"Detoxify: {key} score of {score} is above threshold of {threshold_map[key]}")
-					return False
-			continue
+			for key in threshold_map:
+				label = results.get("label")
+				score = results.get("score")
+				if key == label:
+					if score > threshold_map[key]:
+						logging.info(f"Detoxify: {key} score of {score} is above threshold of {threshold_map[key]}")
+						return False
+				continue
 
-		return True
+			return True
+		except Exception as e:
+			logger.exception(e)
+			return False

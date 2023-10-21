@@ -1,6 +1,5 @@
 import logging
 import threading
-import time
 from typing import Optional
 
 from core.components.text.models.internal_types import QueueType
@@ -23,13 +22,11 @@ class TextGenerationThread(threading.Thread):
 		self.run_generator()
 
 	def run_generator(self):
-		logger.info(":: Starting Generative Services")
 		self.generative_services.create_prompt_completion(self.warp_up_prompt)
 		while True:
 			try:
 				data_thing: Optional[dict] = self.file_queue.queue_pop(QueueType.GENERATION)
 				if data_thing is None:
-					time.sleep(1)
 					continue
 				else:
 					data_thing_prompt = data_thing.get('text')
@@ -47,10 +44,12 @@ class TextGenerationThread(threading.Thread):
 							data_thing['text'] = result.get('text')
 							data_thing['image'] = result.get('image')
 							data_thing['title'] = result.get('title')
+							logger.info(":: Sending data_thing to post queue")
 							self.file_queue.queue_put(data_thing, QueueType.POST)
 							continue
 					else:
 						data_thing['text'] = result
+						logger.debug(":: Sending data_thing to reply queue")
 						self.file_queue.queue_put(data_thing, QueueType.REPLY)
 			except Exception as e:
 				logger.exception("Unexpected error: ", e)

@@ -27,24 +27,24 @@ class CommentHandlerThread(threading.Thread):
 
 	def run(self):
 		logger.info(":: Starting Comment-Handler-Thread")
-		subreddit = self.reddit.subreddit(self.sub_names)
-		self.process_subreddit_stream(subreddit)
+		self.process_subreddit_stream()
 
-	def process_subreddit_stream(self, subreddit):
+	def process_subreddit_stream(self):
+		subreddit = self.reddit.subreddit(self.sub_names)
 		while True:
 			try:
 				self.process_comments_in_stream(subreddit)
 			except prawcore.exceptions.TooManyRequests as e:
-				logger.exception(":: Pause for {30} seconds and then retry.", e)
-				time.sleep(30)
+				logger.exception(e)
+				time.sleep(10)
 				continue
 			except Exception as e:
-				logger.exception(":: Unexpected error in process_subreddit_stream", e)
-				time.sleep(5)
+				logger.exception(e)
+				time.sleep(10)
 				continue
 
 	def process_comments_in_stream(self, subreddit):
-		for item in subreddit.stream.comments(pause_after=-1, skip_existing=True):
+		for item in subreddit.stream.comments(pause_after=0, skip_existing=True):
 			if item is None:
 				time.sleep(1)
 				continue
@@ -58,9 +58,11 @@ class CommentHandlerThread(threading.Thread):
 
 		if item_seen:
 			time.sleep(5)
+			return
 		else:
 			self.process_comment(comment=comment)
 			self.file_stash.cache_set(item_key, True)
+			return
 
 	def process_comment(self, comment: Comment):
 		if comment is None:
@@ -69,11 +71,12 @@ class CommentHandlerThread(threading.Thread):
 		submission_id = comment.submission
 		bots = list(self.config.bot_map.keys())
 		filtered_bot = [x for x in bots if x.lower() != str(comment.author).lower()]
-		responding_bot = random.choice(filtered_bot)
 		random.shuffle(filtered_bot)
 		for i, bot in enumerate(filtered_bot):
-			if i > 2:
-				return
+			if i % 2 == 0:
+				continue
+			else:
+				pass
 
 			submission = self.reddit.submission(submission_id)
 			personality = self.config.bot_map[bot]

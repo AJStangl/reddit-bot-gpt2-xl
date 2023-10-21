@@ -5,6 +5,7 @@ import threading
 import time
 
 import praw
+import prawcore
 from praw.models import Submission
 
 from core.components.text.models.internal_types import QueueType
@@ -27,19 +28,24 @@ class SubmissionHandlerThread(threading.Thread):
 
 	def run(self):
 		logger.info(":: Starting Submission-Handler-Thread")
-		subreddit = self.reddit.subreddit(self.sub_names)
-		self.process_subreddit_stream(subreddit)
+		self.process_subreddit_stream()
 
-	def process_subreddit_stream(self, subreddit: praw):
+	def process_subreddit_stream(self):
+		subreddit = self.reddit.subreddit(self.sub_names)
 		while True:
 			try:
 				self.process_submissions_in_stream(subreddit)
+			except prawcore.exceptions.TooManyRequests as e:
+				logger.exception(e)
+				time.sleep(10)
+				continue
 			except Exception as e:
 				logger.exception(e)
-				time.sleep(1)
+				time.sleep(10)
+				continue
 
 	def process_submissions_in_stream(self, subreddit):
-		for item in subreddit.new(limit=5):
+		for item in subreddit.stream.submissions(pause_after=0, skip_existing=True):
 			if item is None:
 				time.sleep(30)
 				continue
@@ -64,6 +70,9 @@ class SubmissionHandlerThread(threading.Thread):
 			time.sleep(1)
 			return
 
+		if submission.num_comments == os.environ.get("MAX_COMMENTS"):
+			return None
+
 		bots_to_reply = list(self.config.bot_map.keys())
 		for bot in self.config.bot_map.keys():
 			bot_reply_key = f"{bot}-{submission.id}"
@@ -83,7 +92,6 @@ class SubmissionHandlerThread(threading.Thread):
 		for bot in bots_to_reply:
 			if str(submission.author).lower() == bot.lower():
 				continue
-			personality = random.choice(self.config.personality_list)
 			personality = self.config.bot_map[bot]
 			mapped_submission = {
 				"subreddit": 'r/' + personality,

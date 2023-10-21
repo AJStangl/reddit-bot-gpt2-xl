@@ -18,7 +18,7 @@ import logging
 from core.components.text.services.file_queue_caching import FileCache, FileQueue
 from core.components.text.threaded_services.stream_comment import CommentHandlerThread
 from core.components.text.threaded_services.stream_submission import SubmissionHandlerThread
-from core.components.text.threaded_services.reply_sender import ReplyHandlerThread
+from core.components.text.threaded_services.reply_sender import ReplyHandlerThread, PostHandlerThread
 from core.components.text.threaded_services.reply_generator import TextGenerationThread
 from core.components.text.threaded_services.post_generation_thread import PostGenerationThread
 
@@ -39,35 +39,35 @@ class Bot(threading.Thread):
 		self.generative_services: GenerativeServices = generative_services
 
 		self.comment_handler_thread:    CommentHandlerThread = (
-			CommentHandlerThread(name='comment-handler-thread', file_stash=self.file_stash, daemon=True, file_queue=self.file_queue, reddit=self.reddit))
+			CommentHandlerThread(name='comment-handler-thread', daemon=True, file_stash=self.file_stash, file_queue=self.file_queue, reddit=self.reddit))
 
 		self.submission_handler_thread: SubmissionHandlerThread = (
-			SubmissionHandlerThread(name='submission-handler-thread', file_stash=self.file_stash, daemon=True, file_queue=self.file_queue, reddit=self.reddit))
+			SubmissionHandlerThread(name='submission-handler-thread', daemon=True, file_stash=self.file_stash,  file_queue=self.file_queue, reddit=self.reddit))
 
 		self.reply_handler_thread:      ReplyHandlerThread = (
-			ReplyHandlerThread(name='reply-handler-thread', file_stash=self.file_stash, daemon=True, file_queue=self.file_queue))
+			ReplyHandlerThread(name='reply-handler-thread', daemon=True, file_stash=self.file_stash, file_queue=self.file_queue))
 
 		self.text_generator_thread:     TextGenerationThread = (
-			TextGenerationThread(name='text-generation-thread', daemon=True, generative_services=self.generative_services, file_queue=self.file_queue))
+			TextGenerationThread(name='text-generation-thread', daemon=True, file_queue=self.file_queue, generative_services=self.generative_services))
 
 		self.post_generation_thread:    PostGenerationThread = (
 			PostGenerationThread(name='post-generation-thread', daemon=True, file_stash=self.file_stash, file_queue=self.file_queue))
 
-		self.queue_monitor_thread:      QueueMonitorThread = (
+		self.post_handler_thread: PostHandlerThread = (
+			PostHandlerThread(name='post-handler-thread', daemon=True, file_stash=self.file_stash, file_queue=self.file_queue)
+		)
+
+		self.queue_monitor_thread: QueueMonitorThread = (
 			QueueMonitorThread(name='queue-monitor-thread', daemon=True, file_queue=self.file_queue))
 
 
 	def run(self):
 		self.text_generator_thread.start()
-		# Start process that monitors the queue
 		self.queue_monitor_thread.start()
-		# Start comment steam thread
 		self.comment_handler_thread.start()
-		# Start submission steam thread
 		self.submission_handler_thread.start()
-		# Start process that sends replies to reddit
 		self.reply_handler_thread.start()
-		# Start process that polls to create a post
+		self.post_handler_thread.start()
 		self.post_generation_thread.start()
 
 
