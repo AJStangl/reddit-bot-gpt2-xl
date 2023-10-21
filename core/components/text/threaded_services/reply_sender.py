@@ -60,6 +60,8 @@ class ReplyHandlerThread(threading.Thread):
 				comment = new_reddit.comment(reply_id)
 				if comment.submission.locked:
 					return None
+				if reply_text is None:
+					return None
 				reply = comment.reply(reply_text)
 				logger.info(f":: {reply_bot} has replied to Comment: at https://www.reddit.com{reply.permalink}")
 				return None

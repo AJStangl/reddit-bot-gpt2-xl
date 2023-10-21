@@ -108,13 +108,42 @@ class TextGenerator:
 		return args
 
 
+class ImageCaptioning:
+	def __init__(self):
+		self.processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-large")
+		self.model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large")
+
+	def caption_image_from_url(self, image_url: str) -> Optional[str]:
+		result = ""
+		try:
+			response = requests.get(image_url)
+			if response.status_code != 200:
+				return ""
+			content = response.content
+			image = Image.open(BytesIO(content))
+			try:
+				self.model.to("cpu")
+				inputs = self.processor(images=image, return_tensors="pt").to("cpu")
+				out = self.model.generate(**inputs, max_new_tokens=77, num_return_sequences=1, do_sample=True)
+				result = self.processor.decode(out[0], skip_special_tokens=True)
+			except Exception as e:
+				logger.exception(e)
+				return None
+			finally:
+				image.close()
+
+		except Exception as e:
+			logger.exception(e)
+			result = None
+		finally:
+			return result
+
+
 class GenerativeServices:
 	def __init__(self):
 		self.text_lock_path = os.path.join(os.environ.get("LOCK_PATH"), "text.lock")
 		self.image_lock_path = os.path.join(os.environ.get("LOCK_PATH"), "sd.lock")
 		self.detoxify: pipeline = pipeline("text-classification", model="unitary/toxic-bert", device=torch.device("cpu"))
-		self.processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-large")
-		self.model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large")
 		self.text_generator: TextGenerator = TextGenerator()
 
 	def get_image_from_standard_diffusion(self, caption: str) -> str:
@@ -152,31 +181,6 @@ class GenerativeServices:
 			logger.exception(e)
 			return None
 
-	def caption_image_from_url(self, image_url: str) -> str:
-		result = ""
-		try:
-			response = requests.get(image_url)
-			if response.status_code != 200:
-				return ""
-			content = response.content
-
-			image = Image.open(BytesIO(content))
-			try:
-				self.model.to("cpu")
-				inputs = self.processor(images=image, return_tensors="pt").to("cpu")
-				out = self.model.generate(**inputs, max_new_tokens=77, num_return_sequences=1, do_sample=True)
-				result = self.processor.decode(out[0], skip_special_tokens=True)
-			except Exception as e:
-				logger.exception(e)
-				raise e
-			finally:
-				image.close()
-
-		except Exception as e:
-			logger.exception(e)
-			result = ""
-		finally:
-			return result
 
 	def get_info_string(self, prompt, completion):
 		info_string = \

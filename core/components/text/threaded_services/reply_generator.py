@@ -1,5 +1,6 @@
 import logging
 import threading
+import time
 from typing import Optional
 
 from core.components.text.models.internal_types import QueueType
@@ -21,6 +22,24 @@ class TextGenerationThread(threading.Thread):
 		logging.info(":: Starting Text-Generation-Thread")
 		self.run_generator()
 
+	def handle_post_generation(self, prompt: str, data: dict) -> dict:
+		result: dict = self.generative_services.create_prompt_for_submission(prompt=prompt)
+		if result is None:
+			return data
+		data['text'] = result.get('text')
+		data['image'] = result.get('image')
+		data['title'] = result.get('title')
+		logger.info(":: Sending data_thing to post queue")
+		self.file_queue.queue_put(data, QueueType.POST)
+		return None
+
+
+	def handle_reply_generation(self, prompt: str, data: dict):
+		result: str = self.generative_services.create_prompt_completion(prompt=prompt)
+		data['text'] = result
+		self.file_queue.queue_put(data, QueueType.REPLY)
+		return None
+
 	def run_generator(self):
 		self.generative_services.create_prompt_completion(self.warp_up_prompt)
 		while True:
@@ -31,26 +50,15 @@ class TextGenerationThread(threading.Thread):
 				else:
 					data_thing_prompt = data_thing.get('text')
 					data_thing_type = data_thing.get('type')
-					result = None
-					if data_thing_type == 'submission':
-						result: str = self.generative_services.create_prompt_completion(data_thing_prompt)
-					if data_thing_type == 'comment':
-						result: str = self.generative_services.create_prompt_completion(data_thing_prompt)
+					if data_thing_type == 'submission' or data_thing_type == 'comment':
+						self.handle_reply_generation(prompt=data_thing_prompt, data=data_thing)
+						continue
 					if data_thing_type == 'post':
-						result: dict = self.generative_services.create_prompt_for_submission(data_thing_prompt)
-						if result is None:
-							continue
-						else:
-							data_thing['text'] = result.get('text')
-							data_thing['image'] = result.get('image')
-							data_thing['title'] = result.get('title')
-							logger.info(":: Sending data_thing to post queue")
-							self.file_queue.queue_put(data_thing, QueueType.POST)
-							continue
-					else:
-						data_thing['text'] = result
-						logger.debug(":: Sending data_thing to reply queue")
-						self.file_queue.queue_put(data_thing, QueueType.REPLY)
+						self.handle_post_generation(prompt=data_thing_prompt, data=data_thing)
+						continue
+
 			except Exception as e:
 				logger.exception("Unexpected error: ", e)
 				continue
+
+

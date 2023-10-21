@@ -12,6 +12,7 @@ from core.components.text.models.internal_types import QueueType
 from core.components.text.models.queue_message import RedditComment
 from core.components.text.services.configuration_manager import ConfigurationManager
 from core.components.text.services.file_queue_caching import FileCache, FileQueue
+from core.components.text.services.text_generation import ImageCaptioning
 
 logging.basicConfig(level=logging.INFO, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ class SubmissionHandlerThread(threading.Thread):
 		self.file_stash: FileCache = file_stash
 		self.file_queue: FileQueue = file_queue
 		self.config = ConfigurationManager()
+		self.image_captioning: ImageCaptioning = ImageCaptioning()
 
 	def run(self):
 		logger.info(":: Starting Submission-Handler-Thread")
@@ -44,74 +46,73 @@ class SubmissionHandlerThread(threading.Thread):
 				time.sleep(10)
 				continue
 
+
 	def process_submissions_in_stream(self, subreddit):
-		for item in subreddit.stream.submissions(pause_after=0, skip_existing=True):
+		for item in subreddit.new(limit=5): # for item in subreddit.stream.submissions(pause_after=0, skip_existing=True):
 			if item is None:
 				time.sleep(30)
 				continue
 
 			if isinstance(item, Submission):
-				self.handle_submission(item)
+				self.process_submission(submission=item)
 
-	def handle_submission(self, submission: Submission):
-		item_key = f"{submission.id}-submission"
-		item_seen = self.file_stash.cache_get(item_key)
 
-		if item_seen:
+	def process_submission(self, submission) -> None:
+		if submission is None:
 			time.sleep(5)
 			return None
-		else:
-			self.process_submission(submission=submission)
-			self.file_stash.cache_set(item_key, True)
-			return None
 
-	def process_submission(self, submission):
-		if submission is None:
-			time.sleep(1)
-			return
-
-		if submission.num_comments == os.environ.get("MAX_COMMENTS"):
+		if int(submission.num_comments) >= int(os.environ.get("MAX_REPLIES")):
 			return None
 
 		bots_to_reply = list(self.config.bot_map.keys())
 		for bot in self.config.bot_map.keys():
 			bot_reply_key = f"{bot}-{submission.id}"
 			if self.file_stash.cache_get(bot_reply_key):
+				logger.debug(f":: Submission already replied to by {bot}")
 				bots_to_reply.pop()
 
 		if len(bots_to_reply) == 0:
 			return None
 
+		text = None
+		image = None
 		if str(submission.url).endswith(('.png', '.jpg', '.jpeg')):
 			logger.debug(f":: Submission contains image URL: {submission.url}")
-			text = None
-
+			image = self.image_captioning.caption_image_from_url(submission.url)
 		else:
 			text = submission.selftext
 
 		for bot in bots_to_reply:
 			if str(submission.author).lower() == bot.lower():
 				continue
+
+			bot_reply_key = f"{bot}-{submission.id}"
+			if self.file_stash.cache_get(bot_reply_key):
+				logger.debug(f":: Submission already replied to by {bot}")
+				continue
+
 			personality = self.config.bot_map[bot]
 			mapped_submission = {
 				"subreddit": 'r/' + personality,
 				"title": submission.title,
-				"text": text
+				"text": text,
+				"image": image
 			}
-			constructed_string = f"<|startoftext|><|subreddit|>{mapped_submission['subreddit']}<|title|>{mapped_submission['title']}<|text|>{mapped_submission['text']}<|context_level|>0<|comment|>"
-			bot_reply_key = f"{bot}-{submission.id}"
-			bot_reply_value = self.file_stash.cache_get(bot_reply_key)
-			if bot_reply_value:
-				continue
+			if image is not None:
+				constructed_string = f"<|startoftext|><|subreddit|>{mapped_submission['subreddit']}<|title|>{mapped_submission['title']}<|image|>{mapped_submission['image']}<|context_level|>0<|comment|>"
 			else:
-				self.file_stash.cache_set(bot_reply_key, True)
-				data = {
-					'text': constructed_string,
-					'responding_bot': bot,
-					'subreddit': mapped_submission['subreddit'],
-					'reply_id': submission.id,
-					'type': 'submission',
-					'image': '',
-					'title': mapped_submission['title']
-				}
-				self.file_queue.queue_put(data, QueueType.GENERATION)
+				constructed_string = f"<|startoftext|><|subreddit|>{mapped_submission['subreddit']}<|title|>{mapped_submission['title']}<|text|>{mapped_submission['text']}<|context_level|>0<|comment|>"
+
+			self.file_stash.cache_set(bot_reply_key, True)
+			data = {
+				'text': constructed_string,
+				'responding_bot': bot,
+				'subreddit': mapped_submission['subreddit'],
+				'reply_id': submission.id,
+				'type': 'submission',
+				'image': '',
+				'title': mapped_submission['title']
+			}
+			logger.debug(f":: Sending Submission to queue for submission reply generation")
+			self.file_queue.queue_put(data, QueueType.GENERATION)

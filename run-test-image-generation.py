@@ -445,10 +445,11 @@ if __name__ == '__main__':
 						tqdm.write(f"\n:: Skipping {data.get('stash-name')}")
 						continue
 					else:
-						time.sleep(60 * 5)
 						utility_functions.run_generation(data)
 						db[data.get('stash-name')] = True
+						time.sleep(60 * 5)
 						continue
 			except Exception as e:
 				logger.exception(e)
 				continue
+

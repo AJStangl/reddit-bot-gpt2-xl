@@ -35,7 +35,7 @@ class PostGenerationThread(threading.Thread):
 		else:
 			return next_post_time
 
-	def process_generation_queue(self):
+	def process_generation_queue(self) -> None:
 		while True:
 			try:
 				current_time = datetime.now().timestamp()
