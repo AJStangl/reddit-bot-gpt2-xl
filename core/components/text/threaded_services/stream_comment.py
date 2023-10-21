@@ -73,7 +73,9 @@ class CommentHandlerThread(threading.Thread):
 		filtered_bot = [x for x in bots if x.lower() != str(comment.author).lower()]
 		random.shuffle(filtered_bot)
 		for i, bot in enumerate(filtered_bot):
-			if i % 2 == 0:
+			if i % 2 == 0: # sub sample the bots to 50%
+				continue
+			if random.randint(0, 1) == 1: # half the reply probability at random
 				continue
 			else:
 				pass

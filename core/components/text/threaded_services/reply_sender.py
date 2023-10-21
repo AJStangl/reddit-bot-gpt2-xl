@@ -62,6 +62,8 @@ class ReplyHandlerThread(threading.Thread):
 					return None
 				if reply_text is None:
 					return None
+				if reply_text == "":
+					reply_text = "I suppose I have nothing nice to say."
 				reply = comment.reply(reply_text)
 				logger.info(f":: {reply_bot} has replied to Comment: at https://www.reddit.com{reply.permalink}")
 				return None

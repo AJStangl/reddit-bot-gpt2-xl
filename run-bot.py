@@ -58,7 +58,7 @@ class Bot(threading.Thread):
 		)
 
 		self.queue_monitor_thread: QueueMonitorThread = (
-			QueueMonitorThread(name='queue-monitor-thread', daemon=True, file_queue=self.file_queue))
+			QueueMonitorThread(name='queue-monitor-thread', daemon=True, file_queue=self.file_queue, file_stash=self.file_stash))
 
 
 	def run(self):

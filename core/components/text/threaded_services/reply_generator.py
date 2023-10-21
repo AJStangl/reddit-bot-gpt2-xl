@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 import time
 from typing import Optional
@@ -44,6 +45,10 @@ class TextGenerationThread(threading.Thread):
 		self.generative_services.create_prompt_completion(self.warp_up_prompt)
 		while True:
 			try:
+				image_lock_path = os.path.join(os.environ.get("LOCK_PATH"), "sd.lock")
+				if os.path.exists(image_lock_path):
+					time.sleep(1)
+					continue
 				data_thing: Optional[dict] = self.file_queue.queue_pop(QueueType.GENERATION)
 				if data_thing is None:
 					continue

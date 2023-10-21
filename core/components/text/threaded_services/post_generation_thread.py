@@ -44,7 +44,7 @@ class PostGenerationThread(threading.Thread):
 					continue
 				else:
 					self.create_post_string_and_send_to_queue()
-					self.next_time_to_post = float((datetime.now() + timedelta(hours=1)).timestamp())
+					self.next_time_to_post = float((datetime.now() + timedelta(hours=5)).timestamp())
 					self.file_stash.cache_set('time_to_post', self.next_time_to_post)
 					time.sleep(60)
 			except Exception as e:

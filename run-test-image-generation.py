@@ -310,6 +310,7 @@ class UtilityFunctions:
 		return masked_text
 
 	def run_generation(self, lora_prompt):
+
 		denoising_strength = round(random.uniform(0.05, 0.2), 2)
 		num_steps = random.randint(20, 20)
 		cfg_scale = random.randint(7, 7)
@@ -406,6 +407,12 @@ class UtilityFunctions:
 			return None
 
 
+def handle_special_subject_caption(subject, title, caption):
+	if subject in ["celebrities", "gentlemanboners", "CityPorn", "PrettyGirls"]:
+		return f"{title}, {caption}"
+	else:
+		return caption
+
 
 if __name__ == '__main__':
 	pipe = pipeline("text-generation", model="Gustavosta/MagicPrompt-Stable-Diffusion")
@@ -426,6 +433,7 @@ if __name__ == '__main__':
 					caption: str = data.get('caption')
 					title: str = data.get('title')
 					lora_title_for_caption: str = utility_functions.mask_social_text(title)
+					caption = handle_special_subject_caption(subject=lora_subject_name, title=title, caption=caption)
 					negative_prompt = utility_functions.data_mapper.negative_prompts.get(next(item['type'] for item in utility_functions.data_mapper.model_type_negatives if item['name'] == lora_subject_name), "")
 					unique_caption_id = hashlib.md5(caption.encode()).hexdigest()
 					negative_prompt_string = ", ".join(negative_prompt).strip()
