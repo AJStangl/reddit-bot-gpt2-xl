@@ -199,3 +199,5 @@ raw_training_1694874754.*.txt
 /cache/queue/reply
 /cache/queue/submission
 /core/finetune/data/comment_data.txt
+/core/finetune/blip/
+/core/finetune/temp/BLIP/
