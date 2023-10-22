@@ -27,6 +27,7 @@ class ReplyHandlerThread(threading.Thread):
 		while True:
 			try:
 				self.handle_reply_queue()
+				time.sleep(5)
 			except Exception as e:
 				logger.exception(e)
 				time.sleep(5)
@@ -84,24 +85,23 @@ class PostHandlerThread(threading.Thread):
 		while True:
 			try:
 				self.handle_post_queue()
+				time.sleep(5)
 			except Exception as e:
 				logger.exception(e)
 				time.sleep(1)
 				continue
-			finally:
-				time.sleep(60)
 
 	def handle_post_queue(self):
 		data_thing: dict = self.file_queue.queue_pop(QueueType.POST)
 		if data_thing is None:
-			time.sleep(1)
+			time.sleep(5)
 			return None
 		if isinstance(data_thing, dict):
 			self.process_reply(data_thing)
-			time.sleep(1)
+			time.sleep(5)
 			return None
 		else:
-			time.sleep(1)
+			time.sleep(10)
 			return None
 
 

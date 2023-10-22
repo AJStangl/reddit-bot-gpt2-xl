@@ -27,4 +27,9 @@
     "name": "GaryBot-GPT2",
     "personality": "LegallySpeaking"
   }
+  ,
+  {
+    "name": "PoetBotGPT",
+    "personality": "Poetry"
+  }
 ]

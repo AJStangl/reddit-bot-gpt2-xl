@@ -7,7 +7,9 @@ import time
 import praw
 import prawcore
 from praw.models import Comment
-
+from datetime import datetime
+import pytz
+import math
 from core.components.text.models.internal_types import QueueType
 from core.components.text.services.configuration_manager import ConfigurationManager
 from core.components.text.services.file_queue_caching import FileCache, FileQueue
@@ -28,6 +30,25 @@ class CommentHandlerThread(threading.Thread):
 	def run(self):
 		logger.info(":: Starting Comment-Handler-Thread")
 		self.process_subreddit_stream()
+
+	def decay_probability(self, created_utc):
+		# Convert Reddit's created_utc to datetime object
+		reddit_time = datetime.fromtimestamp(created_utc, pytz.utc)
+
+		# Get current time in UTC
+		current_time = datetime.now(pytz.utc)
+
+		# Calculate time difference in hours
+		difference = current_time - reddit_time
+		difference_in_hours = difference.total_seconds() / 3600
+
+		# Define lambda constant (1/4 for 4 hours)
+		lambda_constant = 1 / 4
+
+		# Calculate decay probability
+		probability = math.exp(-lambda_constant * difference_in_hours)
+
+		return probability
 
 	def process_subreddit_stream(self):
 		subreddit = self.reddit.subreddit(self.sub_names)
@@ -80,7 +101,11 @@ class CommentHandlerThread(threading.Thread):
 			else:
 				pass
 
-			submission = self.reddit.submission(submission_id)
+			reply_probability = self.decay_probability(comment.created_utc)
+			if reply_probability < 0.1:
+				continue
+
+			submission: praw.models.Submission = self.reddit.submission(submission_id)
 			personality = self.config.bot_map[bot]
 			mapped_submission = {
 				"subreddit": 'r' + '/' + personality,

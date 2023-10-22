@@ -9,7 +9,6 @@ import prawcore
 from praw.models import Submission
 
 from core.components.text.models.internal_types import QueueType
-from core.components.text.models.queue_message import RedditComment
 from core.components.text.services.configuration_manager import ConfigurationManager
 from core.components.text.services.file_queue_caching import FileCache, FileQueue
 from core.components.text.services.text_generation import ImageCaptioning
@@ -48,7 +47,7 @@ class SubmissionHandlerThread(threading.Thread):
 
 
 	def process_submissions_in_stream(self, subreddit):
-		for item in subreddit.new(limit=5): # for item in subreddit.stream.submissions(pause_after=0, skip_existing=True):
+		for item in subreddit.stream.submissions(pause_after=0, skip_existing=True):
 			if item is None:
 				time.sleep(30)
 				continue
