@@ -6,6 +6,8 @@ __pycache__/
 # C extensions
 *.so
 
+core/finetune/temp/BLIP/temp
+core/finetune/temp/download.py
 # Distribution / packaging
 .Python
 build/
@@ -201,3 +203,16 @@ raw_training_1694874754.*.txt
 /core/finetune/data/comment_data.txt
 /core/finetune/blip/
 /core/finetune/temp/BLIP/
+/core/finetune/temp/BLIP/__init__.py
+/core/finetune/temp/__init__.py
+/comment_data.txt
+/core/finetune/blip_itm/config.json
+/core/finetune/blip_vqa/config.json
+/core/finetune/temp/BLIP/download.py
+/core/finetune/blip_vqa/generation_config.json
+/core/finetune/blip_itm/pytorch_model.bin
+/core/finetune/blip_vqa/pytorch_model.bin
+/core/finetune/temp/BLIP/__init__.py
+/core/finetune/temp/BLIP/download.py
+/core/finetune/temp/BLIP/download.py
+/core/finetune/temp/BLIP/__init__.py
