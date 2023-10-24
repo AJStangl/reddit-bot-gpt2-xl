@@ -6,7 +6,6 @@ import time
 from datetime import datetime, timedelta
 
 from core.components.text.models.internal_types import QueueType
-from core.components.text.models.queue_message import RedditComment
 from core.components.text.services.configuration_manager import ConfigurationManager
 from core.components.text.services.file_queue_caching import FileCache, FileQueue
 
@@ -44,7 +43,7 @@ class PostGenerationThread(threading.Thread):
 					continue
 				else:
 					self.create_post_string_and_send_to_queue()
-					self.next_time_to_post = float((datetime.now() + timedelta(hours=5)).timestamp())
+					self.next_time_to_post = float((datetime.now() + timedelta(hours=2)).timestamp())
 					self.file_stash.cache_set('time_to_post', self.next_time_to_post)
 					time.sleep(60)
 			except Exception as e:

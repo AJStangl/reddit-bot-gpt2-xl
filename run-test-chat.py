@@ -1,6 +1,6 @@
 from transformers import GPT2Tokenizer, GPT2LMHeadModel
 import torch
-new_model = "C:\\Users\\AJ Stangl\\Downloads\\gpt-xl-reddit-4"
+new_model = "C:\\Users\\AJ Stangl\\Downloads\\gpt-xl-reddit-5"
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 tokenizer = GPT2Tokenizer.from_pretrained(new_model)

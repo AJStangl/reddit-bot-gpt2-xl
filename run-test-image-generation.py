@@ -455,6 +455,7 @@ if __name__ == '__main__':
 					else:
 						utility_functions.run_generation(data)
 						db[data.get('stash-name')] = True
+						time.sleep(60 * 5)
 						continue
 			except Exception as e:
 				logger.exception(e)
