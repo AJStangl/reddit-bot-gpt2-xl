@@ -48,12 +48,22 @@ class CommentDetails(object):
 		self.context_level: int = None
 
 
+class SubmissionType(Enum):
+	image = "<|image|>"
+	gallery = "<|gallery|>"
+	video = "<|video|>"
+	comment = "<|comment|>"
+	text = "<|text|>"
+	crosspost = "<|crosspost|>"
+	link = "<|link|>"
+	unknown = None
+
+
 class Blip(object):
 	def __init__(self):
 		self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-		self.model: BlipForConditionalGeneration = BlipForConditionalGeneration.from_pretrained(
-			"D:\\code\\repos\\reddit-bot-gpt2-xl\\core\\finetune\\blip").to(self.device)
-		self.tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+		self.model: BlipForConditionalGeneration = BlipForConditionalGeneration.from_pretrained("D:\\models\\blip-captioning\\blip").to(self.device)
+		self.tokenizer: BertTokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
 
 	def load_image(self, image_url, image_size=384, device="cuda") -> Optional[Tensor]:
 		try:
@@ -83,17 +93,6 @@ class Blip(object):
 		except Exception as e:
 			logger.exception(e)
 			return None
-
-
-class SubmissionType(Enum):
-	image = "<|image|>"
-	gallery = "<|gallery|>"
-	video = "<|video|>"
-	comment = "<|comment|>"
-	text = "<|text|>"
-	crosspost = "<|crosspost|>"
-	link = "<|link|>"
-	unknown = None
 
 
 class Utility:
@@ -319,12 +318,13 @@ def main():
 	os.makedirs(cache_path, exist_ok=True)
 	cache_db_path = Path(cache_path, "cache.db")
 	site_name = os.environ.get("REDDIT_ACCOUNT_SECTION_NAME")
-	while True:
-		reddit = praw.Reddit(site_name=site_name)
-		with shelve.open(str(cache_db_path)) as db:
-			try:
-				subreddit = reddit.subreddit("ShittyIllegalLifeTips")
-				pbar = tqdm(subreddit.hot(limit=1000), total=1000, desc="Processing submissions")
+	reddit = praw.Reddit(site_name=site_name)
+	with shelve.open(str(cache_db_path)) as db:
+		try:
+			subs = os.environ.get("SUBS_TO_MINE").split(",")
+			for sub in subs:
+				subreddit = reddit.subreddit(sub)
+				pbar = tqdm(subreddit.hot(limit=1000), total=1000, desc=f"Processing submissions for: {sub}")
 				for submission in subreddit.hot(limit=1000):
 					try:
 						if submission.id in db:
@@ -368,7 +368,7 @@ def main():
 					finally:
 						time.sleep(1)
 						pbar.update(1)
-
 				return None
-			except Exception as e:
-				logger.error(f"An error occurred: {e}", exc_info=True)
+		except Exception as e:
+			logger.error(f"An error occurred: {e}", exc_info=True)
+			return None
