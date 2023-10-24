@@ -323,7 +323,7 @@ def main():
 		reddit = praw.Reddit(site_name=site_name)
 		with shelve.open(str(cache_db_path)) as db:
 			try:
-				subreddit = reddit.subreddit("Futurology")
+				subreddit = reddit.subreddit("ShittyIllegalLifeTips")
 				pbar = tqdm(subreddit.hot(limit=1000), total=1000, desc="Processing submissions")
 				for submission in subreddit.hot(limit=1000):
 					try:

@@ -20,6 +20,7 @@ class PostGenerationThread(threading.Thread):
 		self.next_time_to_post: float = self.initialize_time_to_post()
 		self.config: ConfigurationManager = ConfigurationManager()
 		self.file_queue: FileQueue = file_queue
+		self.time_to_sleep_for_new_post: int = int(os.environ.get("HOURS_BETWEEN_POST"))
 
 	def run(self):
 		logger.info(":: Starting Post-Generation-Thread")
@@ -28,7 +29,7 @@ class PostGenerationThread(threading.Thread):
 	def initialize_time_to_post(self) -> float:
 		next_post_time = self.file_stash.cache_get('time_to_post')
 		if next_post_time is None:
-			next_post_time = (datetime.now() + timedelta(hours=1)).timestamp()
+			next_post_time = (datetime.now() + timedelta(hours=self.time_to_sleep_for_new_post)).timestamp()
 			self.file_stash.cache_set('time_to_post', next_post_time)
 			return next_post_time
 		else:
@@ -43,7 +44,7 @@ class PostGenerationThread(threading.Thread):
 					continue
 				else:
 					self.create_post_string_and_send_to_queue()
-					self.next_time_to_post = float((datetime.now() + timedelta(hours=2)).timestamp())
+					self.next_time_to_post = float((datetime.now() + timedelta(hours=self.time_to_sleep_for_new_post)).timestamp())
 					self.file_stash.cache_set('time_to_post', self.next_time_to_post)
 					time.sleep(60)
 			except Exception as e:
