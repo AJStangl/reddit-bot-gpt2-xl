@@ -20,6 +20,8 @@ from dotenv import load_dotenv
 from praw.models import Submission
 from tqdm import tqdm
 
+from core.components.text.services.image_generation import Runner, ImageGenerationResult
+
 load_dotenv()
 logging.getLogger("azure").setLevel(logging.ERROR)
 logging.basicConfig(level=logging.INFO, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
@@ -160,6 +162,40 @@ class ImageBot:
 				logger.warning(f"Lock file {self.image_lock_path} does not exist.")
 		except Exception as e:
 			logger.error(f"An error occurred while deleting text lock: {e}")
+
+	def get_image_simple(self, image_generation_result: ImageGenerationResult, info_string: str):
+		try:
+			data = []
+			subject = image_generation_result.subject
+			caption = image_generation_result.caption
+
+			out_path = f"D:\\code\\repos\\reddit-bot-gpt2-xl\\output\\{image_generation_result.subject}\\"
+			os.makedirs(out_path, exist_ok=True)
+			for i, _ in enumerate([image_generation_result.image]):
+				save_path = os.path.join(out_path, f'{image_generation_result.image_name}')
+				image_generation_result.image.save(save_path)
+				if len(image_generation_result.caption) > 180:
+					caption = caption[:177] + "..."
+				data.append({
+					'image_path': save_path,
+					'caption': caption,
+				})
+				self.azure_cloud_storage.write_image_to_cloud(save_path)
+				self.azure_cloud_storage.write_output_to_table_storage_row(
+					subject_key=image_generation_result.subject,
+					iteration=i,
+					title=image_generation_result.title,
+					caption=image_generation_result.caption,
+					style=image_generation_result.subject,
+					final_remote_path=f"https://ajdevreddit.blob.core.windows.net/images/{os.path.basename(save_path)}"
+				)
+			with open(os.path.join(out_path, f'{image_generation_result.image_name}.txt'), 'w', encoding='utf-8') as f:
+				f.write(info_string)
+			return data
+
+		except Exception as e:
+			logger.exception(e)
+			return {}
 
 	def get_image(self,
 				  caption: str,
@@ -309,6 +345,68 @@ class UtilityFunctions:
 			masked_text = "Untitled"
 		return masked_text
 
+	def run_generation_new(self, data: ImageGenerationResult):
+		denoising_strength = round(random.uniform(0.05, 0.2), 2)
+		num_steps = random.randint(20, 20)
+		cfg_scale = random.randint(7, 7)
+		sampler_name = "DDIM"
+		upscaler = "Lanczos"
+		try:
+			title = data.title
+			subject = data.subject
+			base_caption = data.caption
+			lora = data.subject
+			negative_prompt = data.negative_prompt
+		except Exception as e:
+			logger.exception(e)
+			return None
+
+		info_string = f"""
+			==================================================
+
+			## Submission Information:
+
+			Title: {title}
+
+			Subject: {subject}
+
+			## Model Information:
+
+			Lora Weight(s): {lora}
+
+			## Configuration:
+
+			Denoising Strength: {denoising_strength}
+
+			num_steps: {num_steps}
+
+			cfg_scale: {cfg_scale}
+
+			sampler_name: {sampler_name}
+
+			upscaler: {upscaler}
+
+			## Prompt:
+
+			==================================================
+
+			{base_caption}
+
+			{negative_prompt}
+
+			==================================================
+
+						"""
+		try:
+			images = self.image_bot.get_image_simple(image_generation_result=data, info_string=info_string)
+			if len(images) == 0:
+				return None
+			self.reddit_poster.create_submission(model_name=data.subject, title=title,images=images, info_string=info_string)
+			return None
+		except Exception as e:
+			logger.exception(e)
+			return None
+
 	def run_generation(self, lora_prompt):
 
 		denoising_strength = round(random.uniform(0.05, 0.2), 2)
@@ -415,49 +513,55 @@ def handle_special_subject_caption(subject, title, caption):
 
 
 if __name__ == '__main__':
-	pipe = pipeline("text-generation", model="Gustavosta/MagicPrompt-Stable-Diffusion")
+	# pipe = pipeline("text-generation", model="Gustavosta/MagicPrompt-Stable-Diffusion")
 	utility_functions: UtilityFunctions = UtilityFunctions()
-	shelve_path = 'bruh.shelve'
+	# shelve_path = 'bruh.shelve'
+	runner: Runner = Runner()
 	while True:
-		with shelve.open(shelve_path) as db:
-			responses = utility_functions.data_mapper.lora_api_response
-			lora_data = [LoraData(**item) for item in responses]
-			random.shuffle(lora_data)
-			try:
-				for elem in tqdm(lora_data, desc='Lora Data', total=len(lora_data)):
-					meta_data: Metadata = Metadata(elem.metadata)
-					captions = meta_data.get_captions()
-					lora_model_name = elem.name
-					lora_subject_name = elem.alias
-					data = utility_functions.get_caption_for_subject_name(lora_subject_name)
-					caption: str = data.get('caption')
-					title: str = data.get('title')
-					lora_title_for_caption: str = utility_functions.mask_social_text(title)
-					caption = handle_special_subject_caption(subject=lora_subject_name, title=title, caption=caption)
-					negative_prompt = utility_functions.data_mapper.negative_prompts.get(next(item['type'] for item in utility_functions.data_mapper.model_type_negatives if item['name'] == lora_subject_name), "")
-					unique_caption_id = hashlib.md5(caption.encode()).hexdigest()
-					negative_prompt_string = ", ".join(negative_prompt).strip()
-					enriched_caption = pipe.predict(f"{caption}")
-					enriched_caption = enriched_caption[0]['generated_text']
-					enriched_caption += f" <lora:{lora_model_name}:1>"
-					logging.info(enriched_caption)
-					data = {
-						'title': lora_title_for_caption,
-						'prompt': enriched_caption,
-						'subject': lora_subject_name,
-						'negative_prompt': negative_prompt_string.strip(),
-						'lora': lora_model_name,
-						'stash-name': f"{lora_model_name}-{unique_caption_id}"
-					}
-					if data.get('stash-name') in db:
-						tqdm.write(f"\n:: Skipping {data.get('stash-name')}")
-						continue
-					else:
-						utility_functions.run_generation(data)
-						db[data.get('stash-name')] = True
-						time.sleep(60 * 5)
-						continue
-			except Exception as e:
-				logger.exception(e)
-				continue
+		result = runner.run_generation()
+		utility_functions.run_generation_new(result)
+		time.sleep(60 * 5)
+		continue
+
+		# with shelve.open(shelve_path) as db:
+		# 	responses = utility_functions.data_mapper.lora_api_response
+		# 	lora_data = [LoraData(**item) for item in responses]
+		# 	random.shuffle(lora_data)
+		# 	try:
+		# 		for elem in tqdm(lora_data, desc='Lora Data', total=len(lora_data)):
+		# 			meta_data: Metadata = Metadata(elem.metadata)
+		# 			captions = meta_data.get_captions()
+		# 			lora_model_name = elem.name
+		# 			lora_subject_name = elem.alias
+		# 			data = utility_functions.get_caption_for_subject_name(lora_subject_name)
+		# 			caption: str = data.get('caption')
+		# 			title: str = data.get('title')
+		# 			lora_title_for_caption: str = utility_functions.mask_social_text(title)
+		# 			caption = handle_special_subject_caption(subject=lora_subject_name, title=title, caption=caption)
+		# 			negative_prompt = utility_functions.data_mapper.negative_prompts.get(next(item['type'] for item in utility_functions.data_mapper.model_type_negatives if item['name'] == lora_subject_name), "")
+		# 			unique_caption_id = hashlib.md5(caption.encode()).hexdigest()
+		# 			negative_prompt_string = ", ".join(negative_prompt).strip()
+		# 			enriched_caption = pipe.predict(f"{caption}")
+		# 			enriched_caption = enriched_caption[0]['generated_text']
+		# 			enriched_caption += f" <lora:{lora_model_name}:1>"
+		# 			logging.info(enriched_caption)
+		# 			data = {
+		# 				'title': lora_title_for_caption,
+		# 				'prompt': enriched_caption,
+		# 				'subject': lora_subject_name,
+		# 				'negative_prompt': negative_prompt_string.strip(),
+		# 				'lora': lora_model_name,
+		# 				'stash-name': f"{lora_model_name}-{unique_caption_id}"
+		# 			}
+		# 			if data.get('stash-name') in db:
+		# 				tqdm.write(f"\n:: Skipping {data.get('stash-name')}")
+		# 				continue
+		# 			else:
+		# 				utility_functions.run_generation(data)
+		# 				db[data.get('stash-name')] = True
+		# 				time.sleep(60 * 5)
+		# 				continue
+		# 	except Exception as e:
+		# 		logger.exception(e)
+		# 		continue
 

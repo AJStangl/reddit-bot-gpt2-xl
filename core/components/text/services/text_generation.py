@@ -14,7 +14,7 @@ from transformers import GPT2Tokenizer, GPT2LMHeadModel, BlipProcessor, BlipForC
 from transformers import pipeline
 
 from core.components.text.services.generation_arguments import image_generation_arguments
-
+from core.components.text.services.image_generation import Runner, ImageGenerationResult
 
 load_dotenv()
 
@@ -143,44 +143,53 @@ class GenerativeServices:
 	def __init__(self):
 		self.text_lock_path = os.path.join(os.environ.get("LOCK_PATH"), "text.lock")
 		self.image_lock_path = os.path.join(os.environ.get("LOCK_PATH"), "sd.lock")
-		self.detoxify: pipeline = pipeline("text-classification", model="unitary/toxic-bert", device=torch.device("cpu"))
+		self.detoxify: pipeline = pipeline("text-classification", model="unitary/toxic-bert",
+										   device=torch.device("cpu"))
 		self.text_generator: TextGenerator = TextGenerator()
 
 	def get_image_from_standard_diffusion(self, caption: str) -> str:
 		try:
-			base_address = os.environ.get("STANDARD_DIFFUSION_URL")
-			response = requests.get(base_address)
-			if response.status_code != 200:
-				return None
-
-			endpoint = base_address + "/sdapi/v1/txt2img"
-			data = image_generation_arguments(caption)
-
-			headers = {'accept': 'application/json', 'Content-Type': 'application/json'}
-			data_json = data
-			response = requests.post(endpoint, json=data_json, headers=headers)
-			if response.status_code != 200:
-				return None
-			r = response.json()
+			runner: Runner = Runner()
+			image_generation_result: ImageGenerationResult = runner.run_generation_deterministic(title="", prompt=caption)
 			out_path = os.environ.get("IMAGE_OUT_DIR")
 			os.makedirs(out_path, exist_ok=True)
-			image_hash = None
-			data = []
-			for i, _ in enumerate(r['images']):
-				image = Image.open(BytesIO(base64.b64decode(_.split(",", 1)[0])))
-				image_hash = hashlib.md5(image.tobytes()).hexdigest()
-				save_path = os.path.join(out_path, f'{image_hash}-{i}.png')
-				image.save(save_path)
-				data.append({
-					'image_path': save_path,
-					'caption': caption,
-				})
-				image.close()
-			return data[0]['image_path']
+			image_hash = image_generation_result.image_name
+			save_path = os.path.join(out_path, f"{image_hash}")
+			image_generation_result.image.save(save_path)
+			return save_path
+
+		# base_address = os.environ.get("STANDARD_DIFFUSION_URL")
+		# response = requests.get(base_address)
+		# if response.status_code != 200:
+		# 	return None
+		#
+		# endpoint = base_address + "/sdapi/v1/txt2img"
+		# data = image_generation_arguments(caption)
+		#
+		# headers = {'accept': 'application/json', 'Content-Type': 'application/json'}
+		# data_json = data
+		# response = requests.post(endpoint, json=data_json, headers=headers)
+		# if response.status_code != 200:
+		# 	return None
+		# r = response.json()
+		# out_path = os.environ.get("IMAGE_OUT_DIR")
+		# os.makedirs(out_path, exist_ok=True)
+		# image_hash = None
+		# data = []
+		# for i, _ in enumerate(r['images']):
+		# 	image = Image.open(BytesIO(base64.b64decode(_.split(",", 1)[0])))
+		# 	image_hash = hashlib.md5(image.tobytes()).hexdigest()
+		# 	save_path = os.path.join(out_path, f'{image_hash}-{i}.png')
+		# 	image.save(save_path)
+		# 	data.append({
+		# 		'image_path': save_path,
+		# 		'caption': caption,
+		# 	})
+		# 	image.close()
+		# return data[0]['image_path']
 		except Exception as e:
 			logger.exception(e)
 			return None
-
 
 	def get_info_string(self, prompt, completion):
 		info_string = \
@@ -215,29 +224,56 @@ class GenerativeServices:
 			logger.info(f":: Time taken for run_generation: {elapsed_time:.4f} seconds")
 			cleaned_completion: Optional[dict] = self.clean_completion_for_submission(completion=completion)
 			if "<|image|>" in completion:
-				path = self.get_image_from_standard_diffusion(completion)
+				path = self.get_image_from_standard_diffusion(cleaned_completion.get("image"))
 				if path is not None:
 					return {
-						'title':  cleaned_completion.get("title"),
-						'text': cleaned_completion.get("text"),
+						'title': cleaned_completion.get("title"),
+						'text': cleaned_completion.get("image"),
 						'image': path,
 					}
 				else:
 					return None
-
-			if cleaned_completion.get("text") == "":
-				path = self.get_image_from_standard_diffusion(caption=cleaned_completion.get("title"))
+			if "<|video|>" in completion:
+				path = self.get_image_from_standard_diffusion(cleaned_completion.get("video"))
 				if path is not None:
 					return {
-						'title':  cleaned_completion.get("title"),
-						'text': cleaned_completion.get("text"),
+						'title': cleaned_completion.get("title"),
+						'text': cleaned_completion.get("video"),
 						'image': path,
 					}
-
-			else:
-				cleaned_completion: str = self.clean_completion_for_submission(completion=completion)
+				else:
+					return None
+			if "<|gallery|>" in completion:
+				path = self.get_image_from_standard_diffusion(cleaned_completion.get("gallery"))
+				if path is not None:
+					return {
+						'title': cleaned_completion.get("title"),
+						'text': cleaned_completion.get("gallery"),
+						'image': path,
+					}
+			if "<|link|>" in completion:
 				logger.debug(self.get_info_string(prompt=prompt, completion=completion))
-				return cleaned_completion
+				return {
+					'title': cleaned_completion.get("title"),
+					'text': cleaned_completion.get("link"),
+					'image': None,
+				}
+			if "<|crosspost|>" in completion:
+				logger.debug(self.get_info_string(prompt=prompt, completion=completion))
+				return {
+					'title': cleaned_completion.get("title"),
+					'text': cleaned_completion.get("crosspost"),
+					'image': None,
+				}
+			if "<|text|>" in completion:
+				logger.debug(self.get_info_string(prompt=prompt, completion=completion))
+				return {
+					'title': cleaned_completion.get("title"),
+					'text': cleaned_completion.get("text"),
+					'image': None,
+				}
+			else:
+				return None
 		except Exception as e:
 			logger.exception(e)
 			return None
@@ -249,6 +285,10 @@ class GenerativeServices:
 			'title': None,
 			'text': None,
 			'image': None,
+			'video': None,
+			"gallery": None,
+			"crosspost": None,
+			"link": None,
 		}
 		completions = re.findall(pattern, completion)
 		try:
@@ -261,6 +301,15 @@ class GenerativeServices:
 					results['text'] = value
 				if tag == 'image':
 					results['image'] = value
+				if tag == 'video':
+					results['video'] = value
+				if tag == 'gallery':
+					results['gallery'] = value
+				if tag == 'crosspost':
+					results['crosspost'] = value
+				if tag == 'link':
+					results['link'] = value
+
 			return results
 		except Exception as e:
 			logger.exception(e)

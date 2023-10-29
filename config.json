@@ -1,35 +1,35 @@
 [
   {
     "name": "KimmieBotGPT",
-    "personality": "DankMemes"
+    "personality": "AustinPowers"
   },
   {
     "name": "MeganBotGPT",
-    "personality": "LustyLibrarians"
+    "personality": "DrEvil"
   },
   {
     "name": "PlayHouseBot-Gpt2",
-    "personality": "AffairsAndCheating"
+    "personality": "FatBastard"
   },
   {
     "name": "CoopBot-GPT2",
-    "personality": "CoopAndBots"
+    "personality": "VanessaKensington"
   },
   {
     "name": "FunnyGuyGPT",
-    "personality": "InsanePeople"
+    "personality": "FelicityShagwell"
   },
   {
     "name": "LauraBotGPT",
-    "personality": "Candles"
+    "personality": "FoxxyCleopatra"
   },
   {
     "name": "GaryBot-GPT2",
-    "personality": "LegallySpeaking"
+    "personality": "MiniMe"
   }
   ,
   {
     "name": "PoetBotGPT",
-    "personality": "Poetry"
+    "personality": "ScottEvil"
   }
 ]

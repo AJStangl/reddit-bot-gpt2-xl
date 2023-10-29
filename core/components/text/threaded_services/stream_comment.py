@@ -94,24 +94,33 @@ class CommentHandlerThread(threading.Thread):
 		filtered_bot = [x for x in bots if x.lower() != str(comment.author).lower()]
 		random.shuffle(filtered_bot)
 		for i, bot in enumerate(filtered_bot):
-			if i % 2 == 0: # sub sample the bots to 50%
-				continue
 			if random.randint(0, 1) == 1: # half the reply probability at random
 				continue
-			else:
-				pass
+
+			if random.randint(1, 2) != 1: # half the reply probability at random
+				continue
 
 			reply_probability = self.decay_probability(comment.created_utc)
+
 			if reply_probability < 0.1:
 				continue
 
 			submission: praw.models.Submission = self.reddit.submission(submission_id)
+
+			if str(submission.subreddit).lower() == 'obehave':
+				if random.randint(1, 100) != 1:
+					continue
+
 			personality = self.config.bot_map[bot]
 			mapped_submission = {
 				"subreddit": 'r' + '/' + personality,
 				"title": submission.title,
 				"text": submission.selftext
 			}
+
+			if str(submission.subreddit).lower() == 'obehave':
+				if random.randint(1, 100) != 1:
+					continue
 
 			if int(submission.num_comments) > int(os.environ.get('MAX_REPLIES')):
 				logger.debug(f":: Comment Has More Than 250 Replies, Skipping")
