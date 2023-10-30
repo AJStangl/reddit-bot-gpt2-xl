@@ -4,7 +4,8 @@ import logging
 import os
 import random
 from typing import Optional
-
+import re
+import warnings
 import torch
 from PIL import Image
 from accelerate import Accelerator
@@ -21,18 +22,36 @@ from torchvision.transforms.functional import InterpolationMode
 from transformers import CLIPImageProcessor, CLIPTextModel, CLIPTokenizer, pipeline, BlipForConditionalGeneration, \
 	BertTokenizer
 
-load_dotenv()
+warnings.filterwarnings("ignore")
+
+
+class LoggingExtension:
+	@staticmethod
+	def set_global_logging_level(level=logging.ERROR, prefices=[""]):
+		prefix_re = re.compile(fr'^(?:{ "|".join(prefices) })')
+		for name in logging.root.manager.loggerDict:
+			if re.match(prefix_re, name):
+				logging.getLogger(name).setLevel(level)
+
+	@staticmethod
+	def get_logging_format() -> str:
+		logging_format = f'%(asctime)s %(threadName)s %(levelname)s %(message)s'
+		return logging_format
+
 
 logging.basicConfig(level=logging.INFO, format='%(threadName)s - %(asctime)s - %(levelname)s - %(message)s')
+LoggingExtension.set_global_logging_level(logging.FATAL, prefices=['diffusers', 'transformers', 'torch', 'praw', 'azure'])
 logger = logging.getLogger(__name__)
+
+load_dotenv()
 
 
 class ImageGenerationResult:
-	def __init__(self, title: str, caption: str, negative_prompt: str, transferred_image: Image, subject: str):
+	def __init__(self, title: str, caption: str, negative_prompt: str, transferred_image: list[Image], subject: str):
 		self.title: str = title
 		self.caption: str = caption
 		self.negative_prompt: str = negative_prompt
-		self.image: Image = transferred_image
+		self.image: list[Image] = transferred_image
 		self.subject: str = subject
 		self.image_name: str = f"{hashlib.md5(caption.encode()).hexdigest()}.png"
 
@@ -122,7 +141,7 @@ class TextToImage:
 			self.stable_diffusion_xl_model_path, torch_dtype=torch.float16)
 		return pipe
 
-	def create_image(self, prompt: str, negative_prompt: str, lora_name: Optional[str]) -> dict:
+	def create_image(self, prompt: str, negative_prompt: str, lora_name: Optional[str], num_images) -> dict:
 		logger.info(f"Generating Image With StableDiffusionPipeline On Prompt: {prompt}")
 		pipe: StableDiffusionPipeline = self.assemble_stable_diffusion_pipeline()
 		pipe.to(torch_device="cuda")
@@ -132,7 +151,7 @@ class TextToImage:
 		try:
 
 			sd_pipeline_output: StableDiffusionPipelineOutput = pipe(prompt=prompt, negative_prompt=negative_prompt,
-																	 guidance_scale=7, num_inference_steps=20,
+																	 guidance_scale=7, num_inference_steps=20, num_images_per_prompt=num_images,
 																	 output_type="latent")
 			latents = sd_pipeline_output.images
 			with torch.no_grad():
@@ -169,12 +188,12 @@ class TextToImage:
 			del upscaler
 			torch.cuda.empty_cache()
 
-	def create_image_from_image(self, image: Image, prompt: str) -> Image:
+	def create_image_from_image(self, image: Image, prompt: str) -> list[Image]:
 		logger.info(f"Generating Image With StableDiffusionXLImg2ImgPipeline From Image")
 		pipe: StableDiffusionXLImg2ImgPipeline = self.assemble_stable_diffusion_xl_image_to_image_pipeline()
 		pipe.to(torch_device="cuda")
 		try:
-			sd_pipeline_output: StableDiffusionXLPipelineOutput = pipe(prompt=prompt, image=image, target_size=(1024, 1024))
+			sd_pipeline_output: StableDiffusionXLPipelineOutput = pipe(prompt=prompt, image=image, target_size=(1024, 1024), num_images_per_prompt=1)
 			images = sd_pipeline_output.images
 			return images
 		except Exception as e:
@@ -233,26 +252,40 @@ class TextToImage:
 
 class Runner:
 	@staticmethod
-	def run_generation():
+	def run_generation(num_images):
 		try:
 			tti = TextToImage()
 			negative_prompt = "3D, Absent limbs, Additional appendages, Additional digits, Additional limbs, Altered appendages, Amputee, Asymmetric, Asymmetric ears, Bad anatomy, Bad ears, Bad eyes, Bad face, Bad proportions, Beard , Broken finger, Broken hand, Broken leg, Broken wrist, Cartoon, Childish , Cloned face, Cloned head, Collapsed eyeshadow, Combined appendages, Conjoined, Copied visage, Corpse, Cripple, Cropped head, Cross-eyed, Depressed, Desiccated, Disconnected limb, Disfigured, Dismembered, Disproportionate, Double face, Duplicated features, Eerie, Elongated throat"
-			lora_names = ["sarameikasai", "heytegan", "AesPleasingAsianGirls", "miakhalifa", "TrueFMK", "PrettyGirls", "aesha.patel.110696", "Amicute", "amihot"]
+			lora_names = [
+				"sarameikasai", "heytegan", "AesPleasingAsianGirls", "miakhalifa",
+				"TrueFMK", "PrettyGirls", "aesha.patel.110696", "Amicute",
+				"amihot", "AmIhotAF", "AsianInvasion", "AsianOfficeLady",
+				"bathandbodyworks", "blairwears", "blondebeachvibes", "bundleofbrittany",
+				"celebrities", "CityPorn", "CollaredDresses", "DLAH",
+				"Dresses", "DressesPorn", "EarthPorn", "ellyclutchh",
+				"evolutionofevie", "Faces", "fakhiaarif", "fatsquirrelhate",
+				"gentlemanboners", "greentext", "HotGirlNextDoor", "hotofficegirls",
+				"Ifyouhadtopickone", "itookapicture", "KoreanHotties", "marleybrinxy",
+			    "memes", "mildlypenis", "naughtynianacci", "OldLadiesBakingPies",
+				"prettyasiangirls", "realasians", "RealGirls_SFW", "redheadsweetheart_",
+				"sashagreyonlyfans", "secret.sophie96", "selfies", "SFWNextDoorGirls",
+				"sfwpetite", "SFWRedheads", "SlitDresses", "tightdresses",
+				"trippinthroughtime", "wallstreetbets", "WhitePeopleTwitter"]
+
 			random.shuffle(lora_names)
 			for lora_name in lora_names:
 				title_caption_pair: TitleCaptionPair = tti.get_title_caption_pair_for_lora(lora_name=lora_name)
 				enhanced_title_caption_pair: TitleCaptionPair = TitleCaptionPair(title=title_caption_pair.title, caption=tti.enhance_prompt(prompt=title_caption_pair.caption))
-				data = tti.create_image(prompt=enhanced_title_caption_pair.caption, negative_prompt=negative_prompt, lora_name=lora_name)
-
+				data = tti.create_image(prompt=enhanced_title_caption_pair.caption, negative_prompt=negative_prompt, lora_name=lora_name, num_images=num_images)
+				image_generation_result: ImageGenerationResult = ImageGenerationResult(title=enhanced_title_caption_pair.title, caption=enhanced_title_caption_pair.caption, negative_prompt=negative_prompt, transferred_image=[], subject=lora_name)
 				for i, image in enumerate(data['images']):
 					upscaled_images = tti.upscale_original_image(image=data['latents'][i], prompt=enhanced_title_caption_pair.caption)
 					for upscaled_image in upscaled_images:
 						generic_caption: str = tti.caption_image(image=upscaled_image)
 						enhanced_caption: str = tti.enhance_prompt(prompt=generic_caption)
-						create_image_from_image = tti.create_image_from_image(image=upscaled_image, prompt=enhanced_caption)
-						for transferred_image in create_image_from_image:
-							image_generation_result: ImageGenerationResult = ImageGenerationResult(title=enhanced_title_caption_pair.title, caption=enhanced_title_caption_pair.caption, negative_prompt=negative_prompt, transferred_image=transferred_image, subject=lora_name)
-							return image_generation_result
+						image_result = tti.create_image_from_image(image=upscaled_image, prompt=enhanced_caption)
+						image_generation_result.image.append(image_result)
+				return image_generation_result
 		except Exception as e:
 			logger.exception(e)
 			return None
@@ -264,7 +297,7 @@ class Runner:
 			negative_prompt = "3D, Absent limbs, Additional appendages, Additional digits, Additional limbs, Altered appendages, Amputee, Asymmetric, Asymmetric ears, Bad anatomy, Bad ears, Bad eyes, Bad face, Bad proportions, Beard , Broken finger, Broken hand, Broken leg, Broken wrist, Cartoon, Childish , Cloned face, Cloned head, Collapsed eyeshadow, Combined appendages, Conjoined, Copied visage, Corpse, Cripple, Cropped head, Cross-eyed, Depressed, Desiccated, Disconnected limb, Disfigured, Dismembered, Disproportionate, Double face, Duplicated features, Eerie, Elongated throat"
 			enhanced_prompt = tti.enhance_prompt(prompt=prompt)
 			enhanced_title_caption_pair: TitleCaptionPair = TitleCaptionPair(title=title, caption=enhanced_prompt)
-			data = tti.create_image(prompt=enhanced_title_caption_pair.caption, negative_prompt=negative_prompt, lora_name=None)
+			data = tti.create_image(prompt=enhanced_title_caption_pair.caption, negative_prompt=negative_prompt, lora_name=None, num_images=1)
 			for i, image in enumerate(data['images']):
 				upscaled_images = tti.upscale_original_image(image=data['latents'][i], prompt=enhanced_title_caption_pair.caption)
 				for upscaled_image in upscaled_images:
@@ -283,4 +316,4 @@ if __name__ == '__main__':
 	runner: Runner = Runner()
 	while True:
 		result = runner.run_generation_deterministic("I cant believe this", "A Picture of a Tweet with an angry white person")
-		result.image.show()
+		[item.show() for item in result.image]

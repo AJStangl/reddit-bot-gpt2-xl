@@ -6,7 +6,6 @@ import logging
 import os
 import random
 import re
-import shelve
 import time
 
 import pandas
@@ -18,7 +17,6 @@ from azure.data.tables import TableServiceClient, TableClient
 from azure.storage.blob import BlobServiceClient
 from dotenv import load_dotenv
 from praw.models import Submission
-from tqdm import tqdm
 
 from core.components.text.services.image_generation import Runner, ImageGenerationResult
 
@@ -29,7 +27,6 @@ logger = logging.getLogger(__name__)
 
 from dataclasses import dataclass
 from typing import Dict
-from transformers import pipeline
 
 
 @dataclass
@@ -120,7 +117,11 @@ class RedditPoster:
 			if len(title) > 179:
 				title = title[0:179]
 
-			sub.submit_gallery(title=f"{title}", images=images, flair_id=flair_id)
+			if len(images) > 1:
+				logger.info(f":: Submitting Gallery: {title}")
+				sub.submit_gallery(title=f"{title}", images=images, flair_id=flair_id)
+			else:
+				sub.submit_image(title=f"{title}", image_path=images[0]['image_path'], flair_id=flair_id)
 
 			while True:
 				submission: Submission = sub.new(limit=1).__next__()
@@ -171,9 +172,10 @@ class ImageBot:
 
 			out_path = f"D:\\code\\repos\\reddit-bot-gpt2-xl\\output\\{image_generation_result.subject}\\"
 			os.makedirs(out_path, exist_ok=True)
-			for i, _ in enumerate([image_generation_result.image]):
-				save_path = os.path.join(out_path, f'{image_generation_result.image_name}')
-				image_generation_result.image.save(save_path)
+			for i, _ in enumerate(image_generation_result.image):
+				image: Image = _[0]
+				save_path = os.path.join(out_path, f'{i}-{image_generation_result.image_name}')
+				image.save(save_path)
 				if len(image_generation_result.caption) > 180:
 					caption = caption[:177] + "..."
 				data.append({
@@ -401,7 +403,7 @@ class UtilityFunctions:
 			images = self.image_bot.get_image_simple(image_generation_result=data, info_string=info_string)
 			if len(images) == 0:
 				return None
-			self.reddit_poster.create_submission(model_name=data.subject, title=title,images=images, info_string=info_string)
+			self.reddit_poster.create_submission(model_name=data.subject, title=title, images=images, info_string=info_string)
 			return None
 		except Exception as e:
 			logger.exception(e)
@@ -518,9 +520,10 @@ if __name__ == '__main__':
 	# shelve_path = 'bruh.shelve'
 	runner: Runner = Runner()
 	while True:
-		result = runner.run_generation()
+		result = runner.run_generation(num_images=4)
+		result.title = utility_functions.mask_social_text(result.title)
 		utility_functions.run_generation_new(result)
-		time.sleep(60 * 5)
+		# time.sleep(60 * 5)
 		continue
 
 		# with shelve.open(shelve_path) as db:

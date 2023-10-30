@@ -107,7 +107,11 @@ class CommentHandlerThread(threading.Thread):
 
 			submission: praw.models.Submission = self.reddit.submission(submission_id)
 
-			if str(submission.subreddit).lower() == 'obehave':
+			if str(submission.subreddit).lower() == 'ohbehave':
+				if random.randint(1, 100) != 1:
+					continue
+
+			if str(submission.subreddit).lower() == 'SubSimGPT2Interactive'.lower():
 				if random.randint(1, 100) != 1:
 					continue
 
@@ -118,7 +122,7 @@ class CommentHandlerThread(threading.Thread):
 				"text": submission.selftext
 			}
 
-			if str(submission.subreddit).lower() == 'obehave':
+			if str(submission.subreddit).lower() == 'ohbehave':
 				if random.randint(1, 100) != 1:
 					continue
 
