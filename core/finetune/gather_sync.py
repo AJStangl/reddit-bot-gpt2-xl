@@ -4,7 +4,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 import os
-
+import random
 import praw
 import prawcore
 import requests
@@ -323,6 +323,7 @@ def main():
 		with shelve.open(str(cache_db_path)) as db:
 			try:
 				subs = os.environ.get("SUBS_TO_MINE").split(",")
+				random.shuffle(subs)
 				for sub in subs:
 					subreddit = reddit.subreddit(sub)
 					submissions = list(subreddit.top(time_filter="all", limit=1000))

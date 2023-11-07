@@ -17,6 +17,7 @@ from azure.data.tables import TableServiceClient, TableClient
 from azure.storage.blob import BlobServiceClient
 from dotenv import load_dotenv
 from praw.models import Submission
+from transformers import pipeline
 
 from core.components.text.services.image_generation import Runner, ImageGenerationResult
 
@@ -515,56 +516,14 @@ def handle_special_subject_caption(subject, title, caption):
 
 
 if __name__ == '__main__':
-	# pipe = pipeline("text-generation", model="Gustavosta/MagicPrompt-Stable-Diffusion")
+	pipe = pipeline("text-generation", model="Gustavosta/MagicPrompt-Stable-Diffusion")
 	utility_functions: UtilityFunctions = UtilityFunctions()
-	# shelve_path = 'bruh.shelve'
 	runner: Runner = Runner()
+	lock_path = os.environ.get("LOCK_PATH", "")
+	text_lock_path = os.path.join(lock_path, "text.lock")
 	while True:
+		while os.path.exists(text_lock_path):
+			continue
 		result = runner.run_generation(num_images=4)
 		result.title = utility_functions.mask_social_text(result.title)
 		utility_functions.run_generation_new(result)
-		# time.sleep(60 * 5)
-		continue
-
-		# with shelve.open(shelve_path) as db:
-		# 	responses = utility_functions.data_mapper.lora_api_response
-		# 	lora_data = [LoraData(**item) for item in responses]
-		# 	random.shuffle(lora_data)
-		# 	try:
-		# 		for elem in tqdm(lora_data, desc='Lora Data', total=len(lora_data)):
-		# 			meta_data: Metadata = Metadata(elem.metadata)
-		# 			captions = meta_data.get_captions()
-		# 			lora_model_name = elem.name
-		# 			lora_subject_name = elem.alias
-		# 			data = utility_functions.get_caption_for_subject_name(lora_subject_name)
-		# 			caption: str = data.get('caption')
-		# 			title: str = data.get('title')
-		# 			lora_title_for_caption: str = utility_functions.mask_social_text(title)
-		# 			caption = handle_special_subject_caption(subject=lora_subject_name, title=title, caption=caption)
-		# 			negative_prompt = utility_functions.data_mapper.negative_prompts.get(next(item['type'] for item in utility_functions.data_mapper.model_type_negatives if item['name'] == lora_subject_name), "")
-		# 			unique_caption_id = hashlib.md5(caption.encode()).hexdigest()
-		# 			negative_prompt_string = ", ".join(negative_prompt).strip()
-		# 			enriched_caption = pipe.predict(f"{caption}")
-		# 			enriched_caption = enriched_caption[0]['generated_text']
-		# 			enriched_caption += f" <lora:{lora_model_name}:1>"
-		# 			logging.info(enriched_caption)
-		# 			data = {
-		# 				'title': lora_title_for_caption,
-		# 				'prompt': enriched_caption,
-		# 				'subject': lora_subject_name,
-		# 				'negative_prompt': negative_prompt_string.strip(),
-		# 				'lora': lora_model_name,
-		# 				'stash-name': f"{lora_model_name}-{unique_caption_id}"
-		# 			}
-		# 			if data.get('stash-name') in db:
-		# 				tqdm.write(f"\n:: Skipping {data.get('stash-name')}")
-		# 				continue
-		# 			else:
-		# 				utility_functions.run_generation(data)
-		# 				db[data.get('stash-name')] = True
-		# 				time.sleep(60 * 5)
-		# 				continue
-		# 	except Exception as e:
-		# 		logger.exception(e)
-		# 		continue
-

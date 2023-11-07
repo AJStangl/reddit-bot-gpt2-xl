@@ -72,12 +72,7 @@ class TextGenerator:
 				'top_p': 0.95,
 				'do_sample': True,
 			}
-			result = None
-			for item in self.text_model.generate(**config):
-				result = self.tokenizer.decode(item, skip_special_tokens=False, clean_up_tokenization_spaces=True)
-				break
-			return result
-
+			return self.tokenizer.decode(self.text_model.generate(**config).tolist()[0], skip_special_tokens=False, clean_up_tokenization_spaces=True)
 		except Exception as e:
 			logger.error(e)
 			exit(1)
@@ -155,38 +150,9 @@ class GenerativeServices:
 			os.makedirs(out_path, exist_ok=True)
 			image_hash = image_generation_result.image_name
 			save_path = os.path.join(out_path, f"{image_hash}")
-			image_generation_result.image.save(save_path)
+			single_image = image_generation_result.image
+			single_image.save(save_path)
 			return save_path
-
-		# base_address = os.environ.get("STANDARD_DIFFUSION_URL")
-		# response = requests.get(base_address)
-		# if response.status_code != 200:
-		# 	return None
-		#
-		# endpoint = base_address + "/sdapi/v1/txt2img"
-		# data = image_generation_arguments(caption)
-		#
-		# headers = {'accept': 'application/json', 'Content-Type': 'application/json'}
-		# data_json = data
-		# response = requests.post(endpoint, json=data_json, headers=headers)
-		# if response.status_code != 200:
-		# 	return None
-		# r = response.json()
-		# out_path = os.environ.get("IMAGE_OUT_DIR")
-		# os.makedirs(out_path, exist_ok=True)
-		# image_hash = None
-		# data = []
-		# for i, _ in enumerate(r['images']):
-		# 	image = Image.open(BytesIO(base64.b64decode(_.split(",", 1)[0])))
-		# 	image_hash = hashlib.md5(image.tobytes()).hexdigest()
-		# 	save_path = os.path.join(out_path, f'{image_hash}-{i}.png')
-		# 	image.save(save_path)
-		# 	data.append({
-		# 		'image_path': save_path,
-		# 		'caption': caption,
-		# 	})
-		# 	image.close()
-		# return data[0]['image_path']
 		except Exception as e:
 			logger.exception(e)
 			return None

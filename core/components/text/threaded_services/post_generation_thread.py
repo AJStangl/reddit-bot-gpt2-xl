@@ -52,9 +52,8 @@ class PostGenerationThread(threading.Thread):
 				time.sleep(5)
 
 	def create_post_string_and_send_to_queue(self) -> dict:
-		topic = random.choice(self.config.read_topics_file())
 		posting_bot = random.choice(list(self.config.bot_map.keys()))
-		constructed_string = f"<|startoftext|><|subreddit|>r/{topic}<|title|>"
+		constructed_string = f"<|startoftext|><|subreddit|>"
 		data: dict = {
 			'text': constructed_string,
 			"image": "",
