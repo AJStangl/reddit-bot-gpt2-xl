@@ -20,7 +20,7 @@ from torch import Tensor
 from torchvision import transforms
 from torchvision.transforms.functional import InterpolationMode
 from transformers import CLIPImageProcessor, CLIPTextModel, CLIPTokenizer, pipeline, BlipForConditionalGeneration, \
-	BertTokenizer
+	BertTokenizer, GPT2LMHeadModel, GPT2Tokenizer
 
 warnings.filterwarnings("ignore")
 
@@ -71,31 +71,59 @@ class TextToImage:
 		self.device_name = "cuda"
 		self.accelerator = Accelerator()
 
+
 	def enhance_prompt(self, prompt: str) -> str:
 		pipe = pipeline("text-generation", model="Gustavosta/MagicPrompt-Stable-Diffusion")
 		result = pipe(prompt, max_length=50, do_sample=True, temperature=0.9, top_k=50, top_p=0.95,
 					  repetition_penalty=1.0, num_return_sequences=1)
 		return result[0]['generated_text']
 
-	def get_title_caption_pair_for_lora(self, lora_name: str) -> TitleCaptionPair:
+	def get_title_caption_pair_for_lora(self, lora_name: str, model, tokenizer) -> TitleCaptionPair:
 		logger.info(f":: Finding {lora_name}")
-		caption_generator: dict = json.loads(
-			open('D:\\code\\repos\\reddit-bot-gpt2-xl\\data\\captions.json', 'r', encoding='utf=8').read())
-		if lora_name == "SaraMei":
-			lora_name = "sarameikasai"
-		if lora_name == "KatieBeth":
-			lora_name = "princesskatiebeth"
+		prompt = f"<|startoftext|><|model|>{lora_name}<|title|>"
+		encoding = tokenizer(prompt, padding=False, return_tensors='pt').to("cuda")
+		model.to("cuda")
 
-		filtered_list: list = [d for d in caption_generator if lora_name in d.keys()]
-		if len(filtered_list) > 0:
-			caption_object: dict = filtered_list[0]
-			data: list = caption_object[lora_name]
-			random_selection: str = random.choice(data)
-			title: str = random_selection['title']
-			caption: str = random.choice(random_selection['captions'])
-			return TitleCaptionPair(title=title, caption=caption)
-		else:
-			return None
+
+		inputs = encoding['input_ids']
+		attention_mask = encoding['attention_mask']
+		completions = model.generate(
+			inputs=inputs,
+			attention_mask=attention_mask,
+			do_sample=True,
+			max_length=77,
+			top_k=50,
+			top_p=0.95,
+			repetition_penalty=1.0)
+		data = {}
+		for completion in completions:
+			completion = tokenizer.decode(completion, skip_special_tokens=False, clean_up_tokenization_spaces=True)
+			found = re.findall(r"<\|([^|]+)\|>([^<]+)", completion)
+			if found:
+				for thing in found:
+					key = thing[0]
+					value = thing[1].strip()
+					data[key] = value
+
+			return TitleCaptionPair(title=data.get('title'), caption=data.get('caption'))
+
+		# caption_generator: dict = json.loads(
+		# 	open('D:\\code\\repos\\reddit-bot-gpt2-xl\\data\\captions.json', 'r', encoding='utf=8').read())
+		# if lora_name == "SaraMei":
+		# 	lora_name = "sarameikasai"
+		# if lora_name == "KatieBeth":
+		# 	lora_name = "princesskatiebeth"
+		#
+		# filtered_list: list = [d for d in caption_generator if lora_name in d.keys()]
+		# if len(filtered_list) > 0:
+		# 	caption_object: dict = filtered_list[0]
+		# 	data: list = caption_object[lora_name]
+		# 	random_selection: str = random.choice(data)
+		# 	title: str = random_selection['title']
+		# 	caption: str = random.choice(random_selection['captions'])
+		# 	return TitleCaptionPair(title=title, caption=caption)
+		# else:
+		# 	return None
 
 	def assemble_stable_diffusion_pipeline(self) -> StableDiffusionPipeline:
 		vae: AutoencoderKL = AutoencoderKL.from_pretrained(self.stable_diffusion_model_path, subfolder='vae')
@@ -250,31 +278,84 @@ class TextToImage:
 			torch.cuda.empty_cache()
 
 
+
+
+
 class Runner:
+	@staticmethod
+	def get_small_and_tokenizer():
+		model: GPT2LMHeadModel = GPT2LMHeadModel.from_pretrained("D:\\code\\repos\\reddit-bot-gpt2-xl\\prompt-model")
+		tokenizer = GPT2Tokenizer.from_pretrained("prompt-model")
+		model.resize_token_embeddings(len(tokenizer))
+		return model, tokenizer
+
 	@staticmethod
 	def run_generation(num_images):
 		try:
 			tti = TextToImage()
+			gpt_prompt_model, gpt_tokenizer = Runner.get_small_and_tokenizer()
 			negative_prompt = "3D, Absent limbs, Additional appendages, Additional digits, Additional limbs, Altered appendages, Amputee, Asymmetric, Asymmetric ears, Bad anatomy, Bad ears, Bad eyes, Bad face, Bad proportions, Beard , Broken finger, Broken hand, Broken leg, Broken wrist, Cartoon, Childish , Cloned face, Cloned head, Collapsed eyeshadow, Combined appendages, Conjoined, Copied visage, Corpse, Cripple, Cropped head, Cross-eyed, Depressed, Desiccated, Disconnected limb, Disfigured, Dismembered, Disproportionate, Double face, Duplicated features, Eerie, Elongated throat"
 			lora_names = [
-				"sarameikasai", "heytegan", "AesPleasingAsianGirls", "miakhalifa",
-				"TrueFMK", "PrettyGirls", "aesha.patel.110696", "Amicute",
-				"amihot", "AmIhotAF", "AsianInvasion", "AsianOfficeLady",
-				"bathandbodyworks", "blairwears", "blondebeachvibes", "bundleofbrittany",
-				"celebrities", "CityPorn", "CollaredDresses", "DLAH",
-				"Dresses", "DressesPorn", "EarthPorn", "ellyclutchh",
-				"evolutionofevie", "Faces", "fakhiaarif", "fatsquirrelhate",
-				"gentlemanboners", "greentext", "HotGirlNextDoor", "hotofficegirls",
-				"Ifyouhadtopickone", "itookapicture", "KoreanHotties", "marleybrinxy",
-			    "memes", "mildlypenis", "naughtynianacci", "OldLadiesBakingPies",
-				"prettyasiangirls", "realasians", "RealGirls_SFW", "redheadsweetheart_",
-				"sashagreyonlyfans", "secret.sophie96", "selfies", "SFWNextDoorGirls",
-				"sfwpetite", "SFWRedheads", "SlitDresses", "tightdresses",
-				"trippinthroughtime", "wallstreetbets", "WhitePeopleTwitter"]
+				"sarameikasai",
+				"heytegan",
+				"AesPleasingAsianGirls",
+				"miakhalifa",
+				"TrueFMK",
+				"PrettyGirls",
+				"aesha.patel.110696",
+				"Amicute",
+				"amihot",
+				"AmIhotAF",
+				"AsianInvasion",
+				"AsianOfficeLady",
+				"bathandbodyworks",
+				"blairwears",
+				"blondebeachvibes",
+				"bundleofbrittany",
+				"celebrities",
+				"CityPorn",
+				"CollaredDresses",
+				"DLAH",
+				"Dresses",
+				"DressesPorn",
+				"EarthPorn",
+				"ellyclutchh",
+				"evolutionofevie",
+				"Faces",
+				"fakhiaarif",
+				"fatsquirrelhate",
+				"gentlemanboners",
+				"greentext",
+				"HotGirlNextDoor",
+				"hotofficegirls",
+				"Ifyouhadtopickone",
+				"itookapicture",
+				"KoreanHotties",
+				"marleybrinxy",
+			    "memes",
+				"mildlypenis",
+				"naughtynianacci",
+				"OldLadiesBakingPies",
+				"prettyasiangirls",
+				"realasians",
+				"RealGirls_SFW",
+				"redheadsweetheart_",
+				"sashagreyonlyfans",
+				"secret.sophie96",
+				"selfies",
+				"SFWNextDoorGirls",
+				"sfwpetite",
+				"SFWRedheads",
+				"SlitDresses",
+				"tightdresses",
+				"trippinthroughtime",
+				"wallstreetbets",
+				"WhitePeopleTwitter"]
+
 
 			random.shuffle(lora_names)
 			for lora_name in lora_names:
-				title_caption_pair: TitleCaptionPair = tti.get_title_caption_pair_for_lora(lora_name=lora_name)
+				title_caption_pair: TitleCaptionPair = tti.get_title_caption_pair_for_lora(lora_name=lora_name, model=gpt_prompt_model, tokenizer=gpt_tokenizer)
 				enhanced_title_caption_pair: TitleCaptionPair = TitleCaptionPair(title=title_caption_pair.title, caption=tti.enhance_prompt(prompt=title_caption_pair.caption))
 				data = tti.create_image(prompt=enhanced_title_caption_pair.caption, negative_prompt=negative_prompt, lora_name=lora_name, num_images=num_images)
 				image_generation_result: ImageGenerationResult = ImageGenerationResult(title=enhanced_title_caption_pair.title, caption=enhanced_title_caption_pair.caption, negative_prompt=negative_prompt, transferred_image=[], subject=lora_name)
@@ -310,10 +391,3 @@ class Runner:
 		except Exception as e:
 			logger.exception(e)
 			return None
-
-
-if __name__ == '__main__':
-	runner: Runner = Runner()
-	while True:
-		result = runner.run_generation_deterministic("I cant believe this", "A Picture of a Tweet with an angry white person")
-		[item.show() for item in result.image]

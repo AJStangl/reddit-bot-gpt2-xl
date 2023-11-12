@@ -17,7 +17,7 @@ from azure.data.tables import TableServiceClient, TableClient
 from azure.storage.blob import BlobServiceClient
 from dotenv import load_dotenv
 from praw.models import Submission
-from transformers import pipeline
+from transformers import pipeline, GPT2LMHeadModel, GPT2Tokenizer
 
 from core.components.text.services.image_generation import Runner, ImageGenerationResult
 
@@ -516,7 +516,6 @@ def handle_special_subject_caption(subject, title, caption):
 
 
 if __name__ == '__main__':
-	pipe = pipeline("text-generation", model="Gustavosta/MagicPrompt-Stable-Diffusion")
 	utility_functions: UtilityFunctions = UtilityFunctions()
 	runner: Runner = Runner()
 	lock_path = os.environ.get("LOCK_PATH", "")
