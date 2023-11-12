@@ -94,26 +94,40 @@ class CommentHandlerThread(threading.Thread):
 		filtered_bot = [x for x in bots if x.lower() != str(comment.author).lower()]
 		random.shuffle(filtered_bot)
 		for i, bot in enumerate(filtered_bot):
-			if random.randint(0, 1) == 1: # half the reply probability at random
+			if random.randint(0, 1) == 0:
 				continue
 
-			if random.randint(1, 2) != 1: # half the reply probability at random
+			if random.randint(0, 1) == 1:
 				continue
+
+			submission: praw.models.Submission = self.reddit.submission(submission_id)
+
+			chance_of_reply_if_filtered = 0.005  # 1% chance
+			chance_of_reply_if_not_filtered = 0.05  # 10% chance
+
+			# Convert the subreddit to lowercase and compare
+			if str(submission.subreddit).lower() == 'subsimGPT2interactive'.lower():
+				# Check if the bot is in the filtered list
+				if bot in filtered_bot:
+					# Use a random float to determine if the bot should reply
+					if random.random() < chance_of_reply_if_filtered:
+						# Code to reply to the submission
+						pass
+				else:
+					# If the bot is not filtered, use the other chance variable
+					if random.random() < chance_of_reply_if_not_filtered:
+						# Code to reply to the submission
+						pass
+
+
+
+
+
 
 			reply_probability = self.decay_probability(comment.created_utc)
 
 			if reply_probability < 0.1:
 				continue
-
-			submission: praw.models.Submission = self.reddit.submission(submission_id)
-
-			if str(submission.subreddit).lower() == 'ohbehave':
-				if random.randint(1, 100) != 1:
-					continue
-
-			if str(submission.subreddit).lower() == 'SubSimGPT2Interactive'.lower():
-				if random.randint(1, 100) != 1:
-					continue
 
 			personality = self.config.bot_map[bot]
 			mapped_submission = {
@@ -122,9 +136,7 @@ class CommentHandlerThread(threading.Thread):
 				"text": submission.selftext
 			}
 
-			if str(submission.subreddit).lower() == 'ohbehave':
-				if random.randint(1, 100) != 1:
-					continue
+
 
 			if int(submission.num_comments) > int(os.environ.get('MAX_REPLIES')):
 				logger.debug(f":: Comment Has More Than 250 Replies, Skipping")

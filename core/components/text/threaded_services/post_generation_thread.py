@@ -21,6 +21,7 @@ class PostGenerationThread(threading.Thread):
 		self.config: ConfigurationManager = ConfigurationManager()
 		self.file_queue: FileQueue = file_queue
 		self.time_to_sleep_for_new_post: int = int(os.environ.get("HOURS_BETWEEN_POST"))
+		self.topics_list = open(os.environ.get("TOPICS_PATH"), 'r', encoding='utf-8').read().splitlines()
 
 	def run(self):
 		logger.info(":: Starting Post-Generation-Thread")
@@ -53,7 +54,8 @@ class PostGenerationThread(threading.Thread):
 
 	def create_post_string_and_send_to_queue(self) -> dict:
 		posting_bot = random.choice(list(self.config.bot_map.keys()))
-		constructed_string = f"<|startoftext|><|subreddit|>"
+		random_topic = random.choice(self.topics_list)
+		constructed_string = f"<|startoftext|><|subreddit|>r/{random_topic}<|title|>"
 		data: dict = {
 			'text': constructed_string,
 			"image": "",

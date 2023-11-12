@@ -92,7 +92,7 @@ class TextGenerator:
 		args = {
 			'input_ids': inputs,
 			'attention_mask': attention_mask,
-			'max_new_tokens': 512,
+			'max_new_tokens': 1024,
 			'repetition_penalty': 1.1,
 			'temperature': 1.2,
 			'top_k': 50,
@@ -246,17 +246,16 @@ class GenerativeServices:
 
 	def clean_completion_for_submission(self, completion: str) -> Optional[dict]:
 		import re
-		pattern = r'<\|(?P<tag>.*?)\|>(?P<value>.*?)(?=(<\|)|$)'
 		results = {
-			'title': None,
-			'text': None,
 			'image': None,
+			'gallery': None,
 			'video': None,
-			"gallery": None,
-			"crosspost": None,
-			"link": None,
+			'comment': None,
+			'text': None,
+			'crosspost': None,
+			'link': None,
 		}
-		completions = re.findall(pattern, completion)
+		completions = re.findall(r"<\|([^|]+)\|>([^<]+)", completion)
 		try:
 			for item in completions:
 				tag = item[0]

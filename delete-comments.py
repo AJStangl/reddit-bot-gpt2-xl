@@ -1,34 +1,42 @@
-import praw
+import os
+import re
 from tqdm import tqdm
-from datetime import datetime, timedelta
+
+
+def process_files(path, batch_size=1000):
+	known_set = set()
+	regex = re.compile(r"<\|startoftext\|><\|subreddit\|>(.*)<\|title\|>(.*)<\|text\|>(.*)")
+
+	for root, dirs, files in os.walk(path):
+		# Wrap the file processing loop with tqdm for progress monitoring
+		for file in tqdm(files, desc="Processing files"):
+			if file.endswith('.txt'):
+				filepath = os.path.join(root, file)
+				with open(filepath, 'r') as fin:
+					batch = []
+					for line in fin:
+						batch.append(line)
+						if len(batch) >= batch_size:
+							process_batch(batch, regex, known_set)
+							batch = []
+					if batch:  # Process any remaining lines in the last batch
+						process_batch(batch, regex, known_set)
+	return known_set
+
+
+def process_batch(batch, regex, known_set):
+	for line in batch:
+		match = regex.search(line)
+		if match:
+			found = match.group(1)
+			if found not in known_set:
+				known_set.add(found)
+
+
 
 if __name__ == '__main__':
-
-	# List of usernames to search for
-	usernames_to_delete = ["PlayHouseBot-Gpt2", "KimmieBotGPT", "MeganBotGPT", "GaryBot-GPT2", "LauraBotGPT", "PoetBotGPT", "FunnyGuyGPT"]
-
-	# Subreddit you want to scan
-	subreddit_name = "ohbehave"
-
-	# Current time
-	current_time = datetime.utcnow()
-
-	# Initialize Reddit API for multiple accounts
-	for username in usernames_to_delete:
-		reddit = praw.Reddit(site_name=username)
-		subreddit = reddit.subreddit(subreddit_name)
-		latest_submissions = list(subreddit.new(limit=10))
-		# Loop through submissions in the subreddit
-		for submission in tqdm(latest_submissions, desc=f"Searching for comments by {username}", total=len(latest_submissions)):
-			submission_time = datetime.utcfromtimestamp(submission.created_utc)
-			if current_time - submission_time > timedelta(hours=24):
-
-				# Fetch comments
-				submission.comments.replace_more(limit=0)
-				all_comments = submission.comments.list()
-
-				# Loop through comments, delete if authored by username
-				for comment in tqdm(all_comments, desc=f"Deleting comments by {username}", total=len(all_comments)):
-					if comment.author and comment.author.name == username:
-						print(f"Deleting comment {comment.id} by {username}")
-						comment.delete()
+	path = "D:\\code\\repos\\reddit-bot-gpt2-xl\\core\\finetune\\data\\"
+	result = process_files(path)
+	with open('topics.txt', 'w') as f:
+		for item in result:
+			f.write("%s\n" % item)

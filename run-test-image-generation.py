@@ -525,5 +525,8 @@ if __name__ == '__main__':
 		while os.path.exists(text_lock_path):
 			continue
 		result = runner.run_generation(num_images=4)
-		result.title = utility_functions.mask_social_text(result.title)
+		try:
+			result.title = utility_functions.mask_social_text(result.title)
+		except:
+			continue
 		utility_functions.run_generation_new(result)
