@@ -102,13 +102,13 @@ class CommentHandlerThread(threading.Thread):
 
 			submission: praw.models.Submission = self.reddit.submission(submission_id)
 
-			chance_of_reply_if_filtered = 0.005  # 1% chance
-			chance_of_reply_if_not_filtered = 0.05  # 10% chance
+			chance_of_reply_if_filtered = 0.005  # .5% chance
+			chance_of_reply_if_not_filtered = 0.05  # 5% chance
 
 			# Convert the subreddit to lowercase and compare
 			if str(submission.subreddit).lower() == 'subsimGPT2interactive'.lower():
 				# Check if the bot is in the filtered list
-				if bot in filtered_bot:
+				if bot in filtered_bot: # or 'gpt' in str(bot).lower():
 					# Use a random float to determine if the bot should reply
 					if random.random() < chance_of_reply_if_filtered:
 						# Code to reply to the submission

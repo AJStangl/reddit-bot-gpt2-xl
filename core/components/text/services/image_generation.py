@@ -107,23 +107,6 @@ class TextToImage:
 
 			return TitleCaptionPair(title=data.get('title'), caption=data.get('caption'))
 
-		# caption_generator: dict = json.loads(
-		# 	open('D:\\code\\repos\\reddit-bot-gpt2-xl\\data\\captions.json', 'r', encoding='utf=8').read())
-		# if lora_name == "SaraMei":
-		# 	lora_name = "sarameikasai"
-		# if lora_name == "KatieBeth":
-		# 	lora_name = "princesskatiebeth"
-		#
-		# filtered_list: list = [d for d in caption_generator if lora_name in d.keys()]
-		# if len(filtered_list) > 0:
-		# 	caption_object: dict = filtered_list[0]
-		# 	data: list = caption_object[lora_name]
-		# 	random_selection: str = random.choice(data)
-		# 	title: str = random_selection['title']
-		# 	caption: str = random.choice(random_selection['captions'])
-		# 	return TitleCaptionPair(title=title, caption=caption)
-		# else:
-		# 	return None
 
 	def assemble_stable_diffusion_pipeline(self) -> StableDiffusionPipeline:
 		vae: AutoencoderKL = AutoencoderKL.from_pretrained(self.stable_diffusion_model_path, subfolder='vae')
@@ -174,13 +157,12 @@ class TextToImage:
 		pipe: StableDiffusionPipeline = self.assemble_stable_diffusion_pipeline()
 		pipe.to(torch_device="cuda")
 		if lora_name is not None:
-			lora_path = os.path.join("D:\\code\\repos\\stable-diffusion-webui\\models\\Lora", lora_name)
+			lora_path = os.path.join("E:\\tools\\stable-diffusion-webui\\models\\Lora", lora_name)
 			pipe.unet.load_attn_procs(lora_path)
 		try:
-
-			sd_pipeline_output: StableDiffusionPipelineOutput = pipe(prompt=prompt, negative_prompt=negative_prompt,
-																	 guidance_scale=7, num_inference_steps=20, num_images_per_prompt=num_images,
-																	 output_type="latent")
+			if lora_name == "PrettyGirls" or lora_name == "CityPorn" or lora_name == "gentlemanboners":
+				prompt = lora_name + ", " + prompt
+			sd_pipeline_output: StableDiffusionPipelineOutput = pipe(prompt=prompt, negative_prompt=negative_prompt, guidance_scale=7, num_inference_steps=60, num_images_per_prompt=num_images,output_type="latent")
 			latents = sd_pipeline_output.images
 			with torch.no_grad():
 				images = pipe.decode_latents(latents)
@@ -204,8 +186,8 @@ class TextToImage:
 			upscaled_image = upscaler(
 				prompt=prompt,
 				image=image,
-				num_inference_steps=20,
-				guidance_scale=0,
+				num_inference_steps=50,
+				guidance_scale=7,
 				generator=generator
 			)
 			return upscaled_image.images
@@ -264,7 +246,7 @@ class TextToImage:
 
 		device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 		model: BlipForConditionalGeneration = BlipForConditionalGeneration.from_pretrained(
-			"D:\\models\\blip-captioning\\blip").to(device)
+			"E:\\models\\blip-captioning\\blip").to(device)
 		tokenizer: BertTokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
 		try:
 			caption = caption_image(image=image)
@@ -322,7 +304,6 @@ class Runner:
 				"ellyclutchh",
 				"evolutionofevie",
 				"Faces",
-				"fakhiaarif",
 				"fatsquirrelhate",
 				"gentlemanboners",
 				"greentext",

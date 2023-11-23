@@ -317,61 +317,71 @@ def main():
 	cache_path = os.path.join(script_dir, 'cache')
 	os.makedirs(cache_path, exist_ok=True)
 	cache_db_path = Path(cache_path, "cache.db")
-	site_name = os.environ.get("REDDIT_ACCOUNT_SECTION_NAME")
+	site_name = os.environ.get("REDDIT_ACCOUNT_SECTION_NAME_2")
 	reddit = praw.Reddit(site_name=site_name)
+	# while True:
+	# 	with shelve.open(str(cache_db_path)) as db:
+	# 		try:
+	# 			subs = os.environ.get("SUBS_TO_MINE").split(",")
+	# 			random.shuffle(subs)
+	# 			for sub in subs:
+	# 				subreddit = reddit.subreddit(sub)
+	# 				submissions = list(subreddit.top(time_filter="all", limit=1000))
+	# 				for submission in tqdm(submissions, total=len(submissions), desc=f"Processing submissions for: {sub}"):
 	while True:
 		with shelve.open(str(cache_db_path)) as db:
 			try:
-				subs = os.environ.get("SUBS_TO_MINE").split(",")
-				random.shuffle(subs)
-				for sub in subs:
-					subreddit = reddit.subreddit(sub)
-					submissions = list(subreddit.top(time_filter="all", limit=1000))
-					for submission in tqdm(submissions, total=len(submissions), desc=f"Processing submissions for: {sub}"):
+				subreddit = reddit.subreddit('all')  # 'all' subreddit gathers posts from all public subreddits.
+				for comment in subreddit.stream.comments(skip_existing=True):  # Iterates over comments as they become available.
+					submission = comment.submission
+					try:
+						sub_type: SubmissionType = Utility.identify_submission_type(submission)
+						if sub_type == SubmissionType.text:
+							pass
+						if sub_type == SubmissionType.image:
+							pass
+						else:
+							continue
+
+						if submission.id in db:
+							continue
+
+						basic_submission: SubmissionDetails = DataBuilder.collect_submission_details(submission, image_processor)
+						if basic_submission is None:
+							continue
 						try:
-							sub_type: SubmissionType = Utility.identify_submission_type(submission)
-							if sub_type != SubmissionType.text:
-								continue
+							comment_tree = DataBuilder.get_all_comments(submission)
+							basic_submission.comments = comment_tree
+						except prawcore.exceptions.TooManyRequests as e:
+							logger.error(e)
+							time.sleep(10)
+							comment_tree = DataBuilder.get_all_comments(submission)
+							basic_submission.comments = comment_tree
+							continue
+						except Exception as e:
+							logger.error(e)
+							continue
 
-							if submission.id in db:
-								continue
+						constructed_strings = []
+						submission_type: str = str(basic_submission.type.value)
 
-							basic_submission: SubmissionDetails = DataBuilder.collect_submission_details(submission, image_processor)
-							if basic_submission is None:
-								continue
-							try:
-								comment_tree = DataBuilder.get_all_comments(submission)
-								basic_submission.comments = comment_tree
-							except prawcore.exceptions.TooManyRequests as e:
-								logger.error(e)
-								time.sleep(10)
-								comment_tree = DataBuilder.get_all_comments(submission)
-								basic_submission.comments = comment_tree
-								continue
-							except Exception as e:
-								logger.error(e)
-								continue
+						base_str = f'<|startoftext|><|subreddit|>{basic_submission.subreddit}<|title|>{basic_submission.title}{submission_type}{basic_submission.text}'
+						DataBuilder.extract_comments(basic_submission.comments, base_str, constructed_strings)
 
-							constructed_strings = []
-							submission_type: str = str(basic_submission.type.value)
+						data_path = os.path.join(script_dir, "data")
+						os.makedirs(data_path, exist_ok=True)
+						filename = Path(data_path, f"{submission.id}.txt")
+						filename.touch(exist_ok=True)
 
-							base_str = f'<|startoftext|><|subreddit|>{basic_submission.subreddit}<|title|>{basic_submission.title}{submission_type}{basic_submission.text}'
-							DataBuilder.extract_comments(basic_submission.comments, base_str, constructed_strings)
-
-							data_path = os.path.join(script_dir, "data")
-							os.makedirs(data_path, exist_ok=True)
-							filename = Path(data_path, f"{submission.id}.txt")
-							filename.touch(exist_ok=True)
-
-							with filename.open("wb") as f:
-								for item in constructed_strings:
-									encoded = item.encode('unicode_escape')
-									f.write(encoded)
-									f.write(b'\n')
-							db[submission.id] = True
-							logging.info(f"Successfully processed and saved submission {submission.id}")
-						finally:
-							time.sleep(1)
+						with filename.open("wb") as f:
+							for item in constructed_strings:
+								encoded = item.encode('unicode_escape')
+								f.write(encoded)
+								f.write(b'\n')
+						db[submission.id] = True
+						logging.info(f"Successfully processed and saved submission {submission.id}")
+					finally:
+						time.sleep(1)
 			except Exception as e:
 				logger.error(f"An error occurred: {e}", exc_info=True)
 				continue

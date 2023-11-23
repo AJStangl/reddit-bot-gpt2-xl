@@ -60,19 +60,9 @@ class TextGenerator:
 			encoding = self.tokenizer(prompt, padding=False, return_tensors='pt').to(self.device)
 			inputs = encoding['input_ids']
 			attention_mask = encoding['attention_mask']
+			args = self.get_generative_text_args(inputs=inputs, attention_mask=attention_mask)
 			self.check_encoding(inputs=inputs, attention_mask=attention_mask)
-			config = {
-				'inputs': inputs,
-				'attention_mask': attention_mask,
-				'max_length': 512,
-				'repetition_penalty': 1.1,
-				'num_return_sequences': 1,
-				'temperature': 1.2,
-				'top_k': 50,
-				'top_p': 0.95,
-				'do_sample': True,
-			}
-			return self.tokenizer.decode(self.text_model.generate(**config).tolist()[0], skip_special_tokens=False, clean_up_tokenization_spaces=True)
+			return self.tokenizer.decode(self.text_model.generate(**args).tolist()[0], skip_special_tokens=False, clean_up_tokenization_spaces=True)
 		except Exception as e:
 			logger.error(e)
 			exit(1)
@@ -92,9 +82,9 @@ class TextGenerator:
 		args = {
 			'input_ids': inputs,
 			'attention_mask': attention_mask,
-			'max_new_tokens': 1024,
+			'max_new_tokens': 512,
 			'repetition_penalty': 1.1,
-			'temperature': 1.2,
+			'temperature': 1.1,
 			'top_k': 50,
 			'top_p': 0.95,
 			'do_sample': True,
@@ -138,8 +128,7 @@ class GenerativeServices:
 	def __init__(self):
 		self.text_lock_path = os.path.join(os.environ.get("LOCK_PATH"), "text.lock")
 		self.image_lock_path = os.path.join(os.environ.get("LOCK_PATH"), "sd.lock")
-		self.detoxify: pipeline = pipeline("text-classification", model="unitary/toxic-bert",
-										   device=torch.device("cpu"))
+		self.detoxify: pipeline = pipeline("text-classification", model="unitary/toxic-bert", device=torch.device("cpu"))
 		self.text_generator: TextGenerator = TextGenerator()
 
 	def get_image_from_standard_diffusion(self, caption: str) -> str:
