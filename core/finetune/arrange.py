@@ -2,7 +2,7 @@ import os
 import random
 from datetime import datetime
 from pathlib import Path
-
+impot sys
 
 def combine_text_files(directory, output_file):
 	with open(output_file, 'wb') as outfile:
