@@ -5,6 +5,9 @@ __pycache__/
 
 # C extensions
 *.so
+training.txt
+core/finetune/raw_training*.txt
+.idea/
 
 core/finetune/temp/BLIP/temp
 core/finetune/temp/download.py
