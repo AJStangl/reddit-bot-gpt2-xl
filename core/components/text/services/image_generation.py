@@ -156,7 +156,7 @@ class TextToImage:
         pipe: StableDiffusionPipeline = self.assemble_stable_diffusion_pipeline()
         pipe.to(torch_device="cuda")
         if lora_name is not None:
-            lora_path = os.path.join("E:\\tools\\stable-diffusion-webui\\models\\Lora", lora_name)
+            lora_path = os.path.join("M:\\E\\tools\\stable-diffusion-webui\\models\\Lora", lora_name)
             pipe.unet.load_attn_procs(lora_path)
         try:
             if lora_name == "PrettyGirls" or lora_name == "CityPorn" or lora_name == "gentlemanboners":
@@ -246,7 +246,7 @@ class TextToImage:
 
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model: BlipForConditionalGeneration = BlipForConditionalGeneration.from_pretrained(
-            "E:\\models\\blip-captioning\\blip").to(device)
+            "M:\\E\\models\\blip-captioning\\blip").to(device)
         tokenizer: BertTokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
         try:
             caption = caption_image(image=image)
@@ -332,20 +332,20 @@ class Runner:
 
             random.shuffle(lora_names)
             for lora_name in lora_names:
-                title_caption_pair: TitleCaptionPair = tti.get_title_caption_pair_for_lora(lora_name=lora_name,
-                                                                                           model=gpt_prompt_model,
-                                                                                           tokenizer=gpt_tokenizer)
-                enhanced_title_caption_pair: TitleCaptionPair = TitleCaptionPair(title=title_caption_pair.title,
-                                                                                 caption=tti.enhance_prompt(
-                                                                                     prompt=title_caption_pair.caption))
-                data = tti.create_image(prompt=enhanced_title_caption_pair.caption, negative_prompt=negative_prompt,
-                                        lora_name=lora_name, num_images=num_images)
-                image_generation_result: ImageGenerationResult = ImageGenerationResult(
-                    title=enhanced_title_caption_pair.title, caption=enhanced_title_caption_pair.caption,
-                    negative_prompt=negative_prompt, transferred_image=[], subject=lora_name)
+                title_caption_pair = None
+                while title_caption_pair is None:
+                    tcp: TitleCaptionPair = tti.get_title_caption_pair_for_lora(lora_name=lora_name, model=gpt_prompt_model, tokenizer=gpt_tokenizer)
+                    if tcp.caption is None:
+                        logger.info(":: Bad caption for lora_name: {}".format(lora_name))
+                        continue
+                    else:
+                        title_caption_pair = tcp
+
+                enhanced_title_caption_pair: TitleCaptionPair = TitleCaptionPair(title=title_caption_pair.title,caption=tti.enhance_prompt(prompt=title_caption_pair.caption))
+                data = tti.create_image(prompt=enhanced_title_caption_pair.caption, negative_prompt=negative_prompt, lora_name=lora_name, num_images=num_images)
+                image_generation_result: ImageGenerationResult = ImageGenerationResult(title=enhanced_title_caption_pair.title, caption=enhanced_title_caption_pair.caption, negative_prompt=negative_prompt, transferred_image=[], subject=lora_name)
                 for i, image in enumerate(data['images']):
-                    upscaled_images = tti.upscale_original_image(image=data['latents'][i],
-                                                                 prompt=enhanced_title_caption_pair.caption)
+                    upscaled_images = tti.upscale_original_image(image=data['latents'][i], prompt=enhanced_title_caption_pair.caption)
                     for upscaled_image in upscaled_images:
                         generic_caption: str = tti.caption_image(image=upscaled_image)
                         enhanced_caption: str = tti.enhance_prompt(prompt=generic_caption)

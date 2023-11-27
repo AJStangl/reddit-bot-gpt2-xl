@@ -1,6 +1,3 @@
-import base64
-import hashlib
-import io
 import json
 import logging
 import os
@@ -10,15 +7,13 @@ import time
 
 import pandas
 import praw
-import requests
 from PIL import Image
 from azure.core.credentials import AzureNamedKeyCredential
 from azure.data.tables import TableServiceClient, TableClient
 from azure.storage.blob import BlobServiceClient
 from dotenv import load_dotenv
 from praw.models import Submission
-from dataclasses import dataclass
-from typing import Dict
+
 from core.components.text.services.image_generation import Runner, ImageGenerationResult
 
 load_dotenv()
@@ -278,25 +273,7 @@ class ImageBot:
 			return {}
 
 	def get_loras(self):
-		if self.loras is None:
-			try:
-				target_loras = []
-				if os.path.exists('data/lora-api-response.json'):
-					r_json = json.loads(open('data/lora-api-response.json').read())
-				else:
-					r = requests.get("http://127.0.0.1:7860/sdapi/v1/loras")
-					r_json = r.json()
-
-				for elem in r_json:
-					if not elem['path'].endswith('.safetensors'):
-						continue
-					else:
-						target_loras.append(elem)
-				self.loras = target_loras
-				return self.loras
-			except Exception as e:
-				logger.exception(e)
-				self.get_loras()
+		self.loras = json.loads(open('data/lora-api-response.json').read())
 		return self.loras
 
 
