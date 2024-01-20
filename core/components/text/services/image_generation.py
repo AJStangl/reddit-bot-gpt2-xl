@@ -74,8 +74,7 @@ class TextToImage:
 
     def enhance_prompt(self, prompt: str) -> str:
         pipe = pipeline("text-generation", model="Gustavosta/MagicPrompt-Stable-Diffusion")
-        result = pipe(prompt, max_length=50, do_sample=True, temperature=0.9, top_k=50, top_p=0.95,
-                      repetition_penalty=1.0, num_return_sequences=1)
+        result = pipe(prompt, max_length=50, do_sample=True, temperature=0.9, top_k=50, top_p=0.95, repetition_penalty=1.0, num_return_sequences=1)
         return result[0]['generated_text']
 
     def get_title_caption_pair_for_lora(self, lora_name: str, model, tokenizer) -> TitleCaptionPair:
@@ -246,7 +245,7 @@ class TextToImage:
 
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model: BlipForConditionalGeneration = BlipForConditionalGeneration.from_pretrained(
-            "M:\\E\\models\\blip-captioning\\blip").to(device)
+            "M:\\home\\models\\blip-captioning\\blip").to(device)
         tokenizer: BertTokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
         try:
             caption = caption_image(image=image)

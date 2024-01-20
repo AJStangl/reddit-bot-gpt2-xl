@@ -220,3 +220,10 @@ raw_training_1694874754.*.txt
 /core/finetune/temp/BLIP/download.py
 /core/finetune/temp/BLIP/__init__.py
 /prompt-model/
+/guster.jpg
+/img.png
+/output.gif
+/cache/queue/generation.lock
+/cache/queue/post.lock
+/cache/queue/reply.lock
+/cache/queue/submission.lock

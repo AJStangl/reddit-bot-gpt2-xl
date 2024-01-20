@@ -20,9 +20,12 @@ class FileCache:
         self.lock = lock
         with self.lock:
             try:
-                with open(self.db_name, 'r') as f:
-                    db = json.load(f)
+                with open(self.db_name, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    db = json.loads(content)
             except FileNotFoundError:
+                db = {}
+            except Exception:
                 db = {}
 
             if 'time_to_post' not in db:

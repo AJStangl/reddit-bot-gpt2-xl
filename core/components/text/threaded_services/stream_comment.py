@@ -3,7 +3,7 @@ import os
 import random
 import threading
 import time
-
+import json
 import praw
 import prawcore
 from praw.models import Comment
@@ -119,11 +119,6 @@ class CommentHandlerThread(threading.Thread):
 						# Code to reply to the submission
 						pass
 
-
-
-
-
-
 			reply_probability = self.decay_probability(comment.created_utc)
 
 			if reply_probability < 0.1:
@@ -135,8 +130,6 @@ class CommentHandlerThread(threading.Thread):
 				"title": submission.title,
 				"text": submission.selftext
 			}
-
-
 
 			if int(submission.num_comments) > int(os.environ.get('MAX_REPLIES')):
 				logger.debug(f":: Comment Has More Than 250 Replies, Skipping")
@@ -152,8 +145,14 @@ class CommentHandlerThread(threading.Thread):
 				'reply_id': comment.id,
 				'type': 'comment'
 			}
-			self.file_queue.queue_put(data, QueueType.GENERATION)
-			self.file_stash.cache_set(comment.id, True)
+
+			if str(submission.subreddit).lower() == 'subsimGPT2interactive'.lower():
+				with open(f"/mnt/m/home/workspaces/machine_learning/messages/{comment.id}.json", 'w') as f:
+					data_string = json.dumps(data)
+					f.write(data_string)
+			else:
+				self.file_queue.queue_put(data, QueueType.GENERATION)
+				self.file_stash.cache_set(comment.id, True)
 
 	def construct_context_string(self, comment: Comment) -> str:
 		things = []

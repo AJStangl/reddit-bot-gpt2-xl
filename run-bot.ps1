@@ -4,9 +4,9 @@ Write-Output ":: Starting gpt-diffusion-bot-3-11 env"
 
 .\envs\gpt-diffusion-bot-3-11\Scripts\activate
 
-Write-Output ":: Switching to D:\code\repos\reddit-bot-gpt2-xl"
+Write-Output ":: Switching to M:\home\repos\reddit-bot-gpt2-xl"
 
-Set-Location D:\code\repos\reddit-bot-gpt2-xl
+Set-Location M:\home\repos\reddit-bot-gpt2-xl
 
 Write-Output ":: Starting Bot!"
 while ($true) {

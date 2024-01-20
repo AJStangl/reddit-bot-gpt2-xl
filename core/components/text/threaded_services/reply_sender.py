@@ -27,7 +27,7 @@ class ReplyHandlerThread(threading.Thread):
 		while True:
 			try:
 				self.handle_reply_queue()
-				time.sleep(5)
+				time.sleep(.25)
 			except Exception as e:
 				logger.exception(e)
 				time.sleep(5)
