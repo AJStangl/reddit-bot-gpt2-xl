@@ -1,5 +1,23 @@
 # reddit-bot-gpt2-xl
+```mermaid
+graph TD;
+    Director --> TeamLead1;
+    Director --> TeamLead2;
+    Director --> TeamLead3;
+    Director --> TechLead;
 
+    TeamLead1 --> Engineer1A;
+    TeamLead1 --> Engineer1B;
+    TeamLead1 --> Engineer1C;
+
+    TeamLead2 --> Engineer2A;
+    TeamLead2 --> Engineer2B;
+    TeamLead2 --> Engineer2C;
+
+    TeamLead3 --> Engineer3A;
+    TeamLead3 --> Engineer3B;
+    TeamLead3 --> Engineer3C;
+```
 This repo can be used to quickly collect fine-tuned data, create the appropriate output file, train on collab, and run
 the bot on a local machine.
 
